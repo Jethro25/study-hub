@@ -617,7 +617,7 @@ socket.on('connect', async () => {
 socket.on('peer:joined', (p) => {
   if (state.phase !== 'room' || players.has(p.id)) return;
   makePlayer(p, false);
-  rtc.addPeer(p.id);
+  // the newcomer sends us an offer; our connection is created when it arrives
   renderPeople();
 });
 socket.on('peer:left', ({ id }) => {

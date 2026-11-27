@@ -26,7 +26,13 @@ export class RTCMesh {
 
   _track(kind) { return this.localStream.getTracks().find((t) => t.kind === kind) || null; }
 
-  addPeer(id) {
+  /**
+   * @param {string} id
+   * @param {boolean} initiator true for the side that joined the room: it sends the first offer.
+   *   The other side creates its connection when that offer arrives and attaches its own
+   *   camera/mic while answering, so the two never send offers at the same time.
+   */
+  addPeer(id, initiator = true) {
     if (this.peers.has(id)) return this.peers.get(id);
     const pc = new RTCPeerConnection({ iceServers: this.iceServers });
     const peer = {
@@ -93,15 +99,26 @@ export class RTCMesh {
       }
     };
 
-    // Send what we already have.
-    const a = this._track('audio');
-    const v = this._track('video');
-    if (a) peer.senders.audio = pc.addTrack(a, this.localStream);
-    if (v) peer.senders.video = pc.addTrack(v, this.localStream);
+    peer.tracksAttached = false;
+    if (initiator) {
+      this._attachTracks(peer, true);
+    }
+    return peer;
+  }
+
+  _attachTracks(peer, initiator) {
+    if (peer.tracksAttached) return;
+    peer.tracksAttached = true;
+    const pc = peer.pc;
+    for (const kind of ['audio', 'video']) {
+      const t = this._track(kind);
+      if (t) peer.senders[kind] = pc.addTrack(t, this.localStream);
+      // Always offer audio+video so the other side can send theirs even if we have no camera/mic.
+      else if (initiator) pc.addTransceiver(kind, { direction: 'recvonly' });
+    }
     if (this.screenStream) {
       for (const t of this.screenStream.getTracks()) peer.screenSenders.push(pc.addTrack(t, this.screenStream));
     }
-    return peer;
   }
 
   removePeer(id) {
@@ -118,7 +135,7 @@ export class RTCMesh {
   }
 
   handleSignal(from, data) {
-    const peer = this.peers.get(from) || this.addPeer(from);
+    const peer = this.peers.get(from) || this.addPeer(from, false);
     // Chain onto the peer's queue so a candidate is never applied before the description it belongs to.
     peer.queue = peer.queue.then(() => this._applySignal(peer, from, data)).catch((e) => console.warn('[rtc] signal error', e));
     return peer.queue;
@@ -140,6 +157,7 @@ export class RTCMesh {
         // candidates that arrived before any remote description
         for (const c of peer.pendingCandidates.splice(0)) { try { await pc.addIceCandidate(c); } catch { /* stale */ } }
         if (description.type === 'offer') {
+          if (!peer.tracksAttached) this._attachTracks(peer, false); // answerer adds its media now
           await pc.setLocalDescription();
           this.signal(from, { description: pc.localDescription });
         }
@@ -162,6 +180,7 @@ export class RTCMesh {
     if (old && old !== track) this.localStream.removeTrack(old);
     if (track && !this.localStream.getTracks().includes(track)) this.localStream.addTrack(track);
     for (const peer of this.peers.values()) {
+      if (!peer.tracksAttached) continue;
       const sender = peer.senders[kind];
       if (sender) {
         sender.replaceTrack(track).catch((e) => console.warn('[rtc] replaceTrack', e));
@@ -175,6 +194,7 @@ export class RTCMesh {
     this.stopScreen();
     this.screenStream = stream;
     for (const peer of this.peers.values()) {
+      if (!peer.tracksAttached) continue;
       for (const t of stream.getTracks()) peer.screenSenders.push(peer.pc.addTrack(t, stream));
     }
   }
