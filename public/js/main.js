@@ -881,7 +881,11 @@ async function sitAt(seatId, { quiet = false, faceScreen = false } = {}) {
   local.vel.set(0, 0, 0);
   moveTarget = null;
   cam.yaw = seat.ry + Math.PI;
-  if (faceScreen || seat.type === 'meeting') { cam.pitch = 0.06; cam.dist = 1.9; }
+  if (faceScreen || seat.type === 'meeting') {
+    // look at the big screen from the seat
+    cam.yaw = Math.atan2(-(SCREEN.x - seat.x), -(SCREEN.z - seat.z));
+    cam.pitch = 0.06; cam.dist = 1.9;
+  }
   $('standBtn').hidden = false;
   if (seat.type === 'desk' && local.status === 'Available') { setStatus('Studying'); state.autoStatus = true; }
   sendState(true);
@@ -1013,7 +1017,7 @@ function proximityVolume(pl) {
   const d = Math.hypot(pl.pos.x - local.pos.x, pl.pos.z - local.pos.z);
   const NEAR = 2.0, FAR = 13;
   let v = d <= NEAR ? 1 : d >= FAR ? 0 : Math.pow(1 - (d - NEAR) / (FAR - NEAR), 1.6);
-  const inMeet = (p) => p.x > 3 && p.z < -2;
+  const inMeet = (p) => p.x > -5 && p.x < 5 && p.z < -3; // meeting room
   if (inMeet(pl.pos) !== inMeet(local.pos)) v *= 0.35; // glass walls muffle
   return v;
 }
@@ -1755,6 +1759,11 @@ const USES = {
   coffee: { action: 'coffee', msg: '☕ You grabbed a coffee' },
   read: { action: 'read', msg: '📖 You picked a book off the shelf' },
   papers: { action: 'hold_papers', msg: '📄 You picked up some printed papers' },
+  water: { action: 'hold_bottle', msg: '🥤 You filled a water bottle' },
+  vending: { action: 'hold_bottle', msg: '🥤 You got a drink from the vending machine' },
+  supplies: { action: () => ['hold_sticky', 'hold_pen', 'hold_notebook', 'hold_stapler', 'hold_envelope', 'hold_documents'][Math.floor(Math.random() * 6)], msg: '🗂️ You grabbed something from the supplies' },
+  whiteboard: { action: 'point', msg: '🖊️ You are explaining at the whiteboard' },
+  lift: { action: null, msg: '🛗 You are already on the top floor. Enjoy the view! 🌃' },
 };
 function useObject(kind, point) {
   if (!local || !USES[kind]) return;
@@ -1770,7 +1779,8 @@ function finishUse(kind, p) {
   pendingUse = null;
   moveTarget = null;
   if (!local.seat) { local.ry = Math.atan2(p.x - local.pos.x, p.z - local.pos.z); sendState(true); }
-  doAction(USES[kind].action);
+  const act = typeof USES[kind].action === 'function' ? USES[kind].action() : USES[kind].action;
+  if (act) doAction(act);
   toast(USES[kind].msg, 'ok');
 }
 function updatePendingUse() {
