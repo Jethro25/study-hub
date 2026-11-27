@@ -30,6 +30,8 @@
         <div class="lobby-col">
           <label class="lbl" for="nameInput">Display name</label>
           <input id="nameInput" class="input" maxlength="24" placeholder="e.g. Sam Rivera" autocomplete="nickname" />
+          <label class="lbl" for="roleInput" style="margin-top:12px">Role</label>
+          <select id="roleInput" class="input"></select>
 
           <div class="avatar-row">
             <div class="avatar-thumb"><img id="avatarThumb" alt="Your avatar" /></div>
@@ -151,6 +153,21 @@
       <button data-emoji="🤔" title="Hmm (6)">🤔</button>
     </div>
 
+    <div id="actPanel" class="act-panel glass" hidden>
+      <div class="act-head">
+        <div class="act-tabs" role="tablist">
+          <button class="act-tab active" data-tab="do">Actions</button>
+          <button class="act-tab" data-tab="feel">Expressions</button>
+        </div>
+        <div class="act-now"><span id="actNow">Not doing anything</span><button id="actStop" class="btn sm" hidden>Stop</button></div>
+      </div>
+      <div id="actBody" class="act-body"></div>
+      <div class="act-foot">
+        <button id="askBtn" class="btn sm primary">❓ Ask a question (A/B/C…)</button>
+        <span class="act-tip">Tip: click the coffee machine, bookshelf or printer to use them</span>
+      </div>
+    </div>
+
     <nav id="controls" class="controls glass" aria-label="Room controls">
       <button id="micBtn" class="ctl" title="Mute / unmute (M)"><span class="ic"></span><span class="tx">Mic</span></button>
       <button id="camBtn" class="ctl" title="Camera on / off (V)"><span class="ic"></span><span class="tx">Camera</span></button>
@@ -158,6 +175,7 @@
       <button id="presentBtn" class="ctl" title="Presenter mode"><span class="ic"></span><span class="tx">Present</span></button>
       <span class="ctl-sep"></span>
       <button id="reactBtn" class="ctl" title="Reactions (1-6)"><span class="ic"></span><span class="tx">React</span></button>
+      <button id="actBtn" class="ctl" title="Actions &amp; expressions (E)"><span class="ic"></span><span class="tx">Actions</span></button>
       <label class="ctl status-ctl" title="Your status">
         <span class="ic status-dot" id="statusDot"></span>
         <select id="statusSelect" aria-label="Status"></select>
@@ -171,13 +189,41 @@
     </nav>
 
     <div id="helpHint" class="help glass">
-      <span id="helpText"><strong>WASD</strong> move · <strong>Shift</strong> run · <strong>drag</strong> look · <strong>scroll</strong> zoom · <strong>click a chair</strong> to sit · <strong>click the floor</strong> to walk</span>
+      <span id="helpText"><strong>WASD</strong> move · <strong>Shift</strong> run · <strong>drag</strong> look · <strong>scroll</strong> zoom · <strong>click a chair</strong> to sit · <strong>E</strong> actions</span>
       <button id="hideHelp" class="icon-btn" aria-label="Hide tips">✕</button>
     </div>
     <div id="reconnect" class="reconnect" hidden>Connection lost — reconnecting…</div>
   </div>
 
   <div id="editorModal" class="modal" aria-hidden="true"></div>
+
+  <div id="askModal" class="modal" aria-hidden="true">
+    <div class="modal-card ask-card">
+      <div id="askCreate">
+        <h3>❓ Ask everyone a question</h3>
+        <p class="muted">It shows above your head. Others click it to answer.</p>
+        <input id="askQ" class="input" maxlength="140" placeholder="Your question, e.g. Which topic should we study first?" />
+        <div class="ask-opts">
+          <label><b>A</b><input class="input ask-o" maxlength="60" placeholder="Option A" /></label>
+          <label><b>B</b><input class="input ask-o" maxlength="60" placeholder="Option B" /></label>
+          <label><b>C</b><input class="input ask-o" maxlength="60" placeholder="Option C (optional)" /></label>
+          <label><b>D</b><input class="input ask-o" maxlength="60" placeholder="Option D (optional)" /></label>
+        </div>
+        <div class="ask-actions">
+          <button id="askClear" class="btn ghost" hidden>Remove my question</button>
+          <span style="flex:1"></span>
+          <button id="askCancel" class="btn">Cancel</button>
+          <button id="askSend" class="btn primary">Ask</button>
+        </div>
+      </div>
+      <div id="askVote" hidden>
+        <h3 id="voteQ"></h3>
+        <p class="muted" id="voteWho"></p>
+        <div id="voteOpts" class="vote-opts"></div>
+        <div class="ask-actions"><span style="flex:1"></span><button id="voteClose" class="btn">Close</button></div>
+      </div>
+    </div>
+  </div>
 
   <div id="screenModal" class="modal" aria-hidden="true">
     <div class="screen-view">

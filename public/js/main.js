@@ -2,8 +2,10 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildOffice, resolveCollisions, SPAWN, SCREEN, BOUNDS } from './office.js';
-import { buildAvatar, animateAvatar, normalizeAvatar, randomAvatar } from './avatar.js';
-import { createVideoPanel, createNameLabel, createEmojiLayer, STATUSES, statusColor } from './labels.js';
+import { buildAvatar, animateAvatar, normalizeAvatar, randomAvatar, EMOTIONS } from './avatar.js';
+import { createVideoPanel, createNameLabel, createEmojiLayer, STATUSES, statusColor, ROLES, ROLE_EMOJI } from './labels.js';
+import { ACTIONS, applyAction } from './actions.js';
+import { createBubble } from './bubbles.js';
 import { createEditor, avatarThumbnail } from './editor.js';
 import { RTCMesh } from './rtc.js';
 import { filesToSlides, chime } from './slides.js';
@@ -49,6 +51,7 @@ const ICONS = {
   people: svg('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/>'),
   leave: svg('<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l-5-5 5-5M5 12h11"/>'),
   stand: svg('<path d="M12 19V5M5 12l7-7 7 7"/>'),
+  act: svg('<circle cx="12" cy="5" r="2.2"/><path d="M12 8v6M12 14l-3.5 6M12 14l3.5 6M6 9.5l6 1.2 6-3.7"/>'),
 };
 const setIcon = (btn, name) => { const ic = btn.querySelector('.ic') || btn; ic.innerHTML = ICONS[name]; };
 
@@ -133,7 +136,7 @@ function audioCtx() {
 window.addEventListener('pointerdown', () => audioCtx(), { capture: true });
 window.addEventListener('keydown', () => audioCtx(), { capture: true });
 
-function makeAnalyser(stream) {
+function makeAnalyser(stream, spatial = false) {
   const ctx = audioCtx();
   if (!ctx || !stream.getAudioTracks().length) return null;
   try {
@@ -141,7 +144,15 @@ function makeAnalyser(stream) {
     const an = ctx.createAnalyser();
     an.fftSize = 512;
     src.connect(an);
-    return { an, src, buf: new Uint8Array(an.fftSize), trackId: stream.getAudioTracks()[0].id };
+    const out = { an, src, buf: new Uint8Array(an.fftSize), trackId: stream.getAudioTracks()[0].id };
+    if (spatial && ctx.createStereoPanner) {
+      // proximity voice: volume by distance + left/right by direction
+      out.pan = ctx.createStereoPanner();
+      out.gain = ctx.createGain();
+      out.gain.gain.value = 0;
+      src.connect(out.pan).connect(out.gain).connect(ctx.destination);
+    }
+    return out;
   } catch { return null; }
 }
 function levelOf(a) {
@@ -367,6 +378,7 @@ function joinPayload(extra = {}) {
   const pos = local ? { x: local.pos.x, z: local.pos.z } : { x: SPAWN.x + spawnJitter(), z: SPAWN.z + spawnJitter() };
   return {
     name: $('nameInput').value.trim() || 'Guest',
+    role: $('roleInput').value || 'Employee',
     avatar: avatarCfg,
     mic: micLive(),
     cam: camLive(),
@@ -408,6 +420,15 @@ function makePlayer(p, isLocal) {
     name: p.name,
     cfg: normalizeAvatar(p.avatar),
     status: p.status || 'Available',
+    role: p.role || 'Employee',
+    action: p.action || null,
+    actionAt: performance.now(),
+    emotion: p.emotion || 'neutral',
+    ask: p.ask || null,
+    say: null,
+    talkUntil: 0,
+    tempEmo: null,
+    bubble: createBubble(),
     mic: !!p.mic,
     cam: !!p.cam,
     seat: p.seat || null,
@@ -442,7 +463,8 @@ function makePlayer(p, isLocal) {
     $('media').appendChild(pl.audioEl);
   }
   rebuildAvatar(pl, pl.cfg);
-  scene.add(pl.panel.mesh, pl.label.sprite);
+  pl.bubble.sprite.userData.playerId = pl.id;
+  scene.add(pl.panel.mesh, pl.label.sprite, pl.bubble.sprite);
   players.set(pl.id, pl);
   return pl;
 }
@@ -469,7 +491,8 @@ function removePlayer(id) {
   pl.videoEl.srcObject = null;
   pl.videoEl.remove();
   if (pl.audioEl) { pl.audioEl.srcObject = null; pl.audioEl.remove(); }
-  try { pl.analyser?.src.disconnect(); } catch { /* ignore */ }
+  try { pl.analyser?.src.disconnect(); pl.analyser?.gain?.disconnect(); } catch { /* ignore */ }
+  pl.bubble.dispose();
   players.delete(id);
 }
 
@@ -505,7 +528,10 @@ function attachCamStream(pl, stream) {
   }
   pl.panel.setVideo(pl.videoEl, false);
   const at = stream.getAudioTracks()[0];
-  if (at && (!pl.analyser || pl.analyser.trackId !== at.id)) pl.analyser = makeAnalyser(stream);
+  if (at && (!pl.analyser || pl.analyser.trackId !== at.id)) {
+    try { pl.analyser?.gain?.disconnect(); } catch { /* ignore */ }
+    pl.analyser = makeAnalyser(stream, true);
+  }
 }
 
 // ====================================================================
@@ -646,7 +672,7 @@ socket.on('profile', (d) => {
   const pl = players.get(d.id);
   if (!pl || pl.isLocal) return;
   const nameChanged = d.name && d.name !== pl.name;
-  Object.assign(pl, { status: d.status, mic: d.mic, cam: d.cam, name: d.name || pl.name });
+  Object.assign(pl, { status: d.status, mic: d.mic, cam: d.cam, name: d.name || pl.name, role: d.role || pl.role });
   if (d.streamId && d.streamId !== pl.streamId) {
     pl.streamId = d.streamId;
     const s = rtc.getStream(pl.id, pl.streamId);
@@ -664,7 +690,31 @@ socket.on('seat', ({ id, seat }) => {
     pl.buffer = [];
   }
 });
-socket.on('chat', (m) => appendChat(m));
+socket.on('chat', (m) => { appendChat(m); speak(m); });
+socket.on('act', ({ id, action, emotion }) => {
+  const pl = players.get(id);
+  if (!pl || pl.isLocal) return;
+  if (action !== pl.action) { pl.action = action; pl.actionAt = performance.now(); }
+  pl.emotion = emotion || 'neutral';
+});
+socket.on('give', ({ from, to }) => {
+  const giver = players.get(from), taker = players.get(to);
+  if (!giver || !taker) return;
+  if (taker.isLocal) {
+    setTimeout(() => {
+      toast(`📄 ${giver.name} handed you some papers`, 'ok');
+      doAction('holdpaper');
+    }, 900);
+  }
+});
+socket.on('ask', ({ id, ask }) => {
+  const pl = players.get(id);
+  if (!pl) return;
+  const isNew = ask && (!pl.ask || pl.ask.qid !== ask.qid);
+  pl.ask = ask;
+  if (isNew) appendAskCard(pl);
+  if (voteOwner === id) { if (ask) renderVote(pl); else closeAsk(); }
+});
 socket.on('react', ({ id, emoji }) => {
   const pl = players.get(id);
   if (!pl) return;
@@ -697,12 +747,14 @@ const isTyping = () => {
   const el = document.activeElement;
   return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
 };
-const modalOpen = () => editor.isOpen || $('screenModal').classList.contains('open');
+const modalOpen = () => editor.isOpen || $('screenModal').classList.contains('open') || $('askModal').classList.contains('open');
 
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if ($('screenModal').classList.contains('open')) closeScreenModal();
     else if (isTyping()) document.activeElement.blur();
+    else if ($('askModal').classList.contains('open')) closeAsk();
+    else if (!$('actPanel').hidden) $('actPanel').hidden = true;
     else if (!$('reactBar').hidden) $('reactBar').hidden = true;
     return;
   }
@@ -710,9 +762,11 @@ window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift'].includes(k)) {
     keys.add(k);
-    if (k !== 'shift') { moveTarget = null; if (local?.seat) standUp(); }
+    if (k !== 'shift') { moveTarget = null; pendingUse = null; if (local?.seat) standUp(); }
     if (k.startsWith('arrow')) e.preventDefault();
   } else if (k === 'enter') { openSide('chat'); $('chatInput').focus(); e.preventDefault(); }
+  else if (k === 'e') toggleActPanel();
+  else if (k === 'x' && local?.action) doAction(null);
   else if (k === 'm') toggleMic();
   else if (k === 'v') toggleCam();
   else if (k === ' ') { if (local?.seat) standUp(); e.preventDefault(); }
@@ -762,7 +816,8 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 function pickAt(e) {
   ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
-  const hits = raycaster.intersectObjects([...office.clickables, office.screen.mesh], false);
+  const bubbles = [...players.values()].filter((p) => p.bubble.kind === 'ask' && p.bubble.sprite.visible).map((p) => p.bubble.sprite);
+  const hits = raycaster.intersectObjects([...bubbles, ...office.clickables, office.screen.mesh], false);
   return hits[0] || null;
 }
 
@@ -778,6 +833,8 @@ function updateHover(now) {
 function handleClick(e) {
   const hit = pickAt(e);
   if (hit?.object.userData.isScreen) { openScreenModal(); return; }
+  if (hit?.object.userData.isBubble) { const p = players.get(hit.object.userData.playerId); if (p?.ask) openVote(p); return; }
+  if (hit?.object.userData.interact) { useObject(hit.object.userData.interact, hit.point); return; }
   if (hit?.object.userData.seatIds) {
     const taken = occupiedSeats();
     const free = hit.object.userData.seatIds
@@ -796,6 +853,7 @@ function handleClick(e) {
     if (p.x > BOUNDS.minX && p.x < BOUNDS.maxX && p.z > BOUNDS.minZ && p.z < BOUNDS.maxZ) {
       if (local.seat) standUp();
       moveTarget = p;
+      pendingUse = null;
     }
   }
 }
@@ -936,6 +994,16 @@ function updateRemote(pl, dt, now) {
 }
 
 // Proximity audio: full volume up close, fading out with distance.
+/** -1 (left) … 1 (right): where a voice comes from, relative to the camera */
+function proximityPan(pl) {
+  if (!local || (state.presenterId === pl.id && state.presenterBroadcast)) return 0;
+  const dx = pl.pos.x - local.pos.x, dz = pl.pos.z - local.pos.z;
+  const d = Math.hypot(dx, dz);
+  if (d < 0.4) return 0;
+  const right = dx * Math.cos(cam.yaw) - dz * Math.sin(cam.yaw);
+  return clamp((right / d) * Math.min(1, d / 1.5), -1, 1) * 0.85;
+}
+
 function proximityVolume(pl) {
   if (!local) return 0;
   if (state.presenterId === pl.id && state.presenterBroadcast) return 1;
@@ -1019,9 +1087,20 @@ function refreshScreen() {
   const presenter = players.get(state.presenterId);
   const stream = currentScreenStream();
   if (stream) {
+    // play the shared sound for viewers (never for the presenter, or they'd hear an echo)
+    screenVideoEl.muted = state.presenterId === state.selfId;
+    screenVideoEl.volume = 1;
     if (screenVideoEl.srcObject !== stream) {
       screenVideoEl.srcObject = stream;
-      screenVideoEl.play().catch(() => {});
+      screenVideoEl.play().catch(() => {
+        // the browser blocked sound before a click: play muted, unmute on the next click
+        screenVideoEl.muted = true;
+        screenVideoEl.play().catch(() => {});
+        toast('🔇 Click anywhere to hear the shared screen', '', 8000);
+        window.addEventListener('pointerdown', () => {
+          if (state.presenterId !== state.selfId) { screenVideoEl.muted = false; screenVideoEl.play().catch(() => {}); }
+        }, { once: true });
+      });
       screenVideoTex?.dispose();
       screenVideoTex = new THREE.VideoTexture(screenVideoEl);
       screenVideoTex.colorSpace = THREE.SRGBColorSpace;
@@ -1092,7 +1171,12 @@ async function startShare() {
   if (!(await claimPresenter())) return;
   let stream;
   try {
-    stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 15, max: 30 }, width: { max: 1920 }, height: { max: 1080 } }, audio: false });
+    // audio: the tab / system sound (videos, music in the slides) goes to everyone too
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: 15, max: 30 }, width: { max: 1920 }, height: { max: 1080 } },
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      systemAudio: 'include',
+    });
   } catch {
     toast('Screen share cancelled');
     return;
@@ -1101,6 +1185,8 @@ async function startShare() {
   if (!track) return;
   track.contentHint = 'detail';
   track.addEventListener('ended', () => stopShare(true));
+  if (!stream.getAudioTracks().length) toast('Sharing without sound. To include sound, share a browser tab and tick "Share tab audio" (or "Share system audio" for the whole screen).', 'info', 7000);
+  else toast('🔊 Screen sound is shared too', 'ok');
   rtc.startScreen(stream);
   socket.emit('screen:start', stream.id);
   state.screenStreamId = stream.id;
@@ -1390,7 +1476,7 @@ function renderPeople() {
       if (state.presenterId === p.id) { const t = document.createElement('span'); t.className = 'tag'; t.textContent = 'presenting'; nm.appendChild(t); }
       const st = document.createElement('div');
       st.className = 'st';
-      st.textContent = p.status + (!p.isLocal && p.rtcState === 'failed' ? ' · video connection failed' : '');
+      st.textContent = `${ROLE_EMOJI[p.role] || ''} ${p.role} · ` + p.status + (!p.isLocal && p.rtcState === 'failed' ? ' · video connection failed' : '');
       info.append(nm, st);
       const icons = document.createElement('div');
       icons.className = 'icons';
@@ -1463,10 +1549,235 @@ $('copyLink').onclick = async () => {
 };
 $('hideHelp').onclick = () => { $('helpHint').hidden = true; store.set('hideHelp', true); };
 if (store.get('hideHelp', false)) $('helpHint').hidden = true;
-for (const [id, ic] of [['shareBtn', 'screen'], ['presentBtn', 'present'], ['reactBtn', 'react'], ['avatarBtn', 'avatar'], ['chatBtn', 'chat'], ['peopleBtn', 'people'], ['leaveBtn', 'leave']]) setIcon($(id), ic);
+for (const [id, ic] of [['shareBtn', 'screen'], ['presentBtn', 'present'], ['reactBtn', 'react'], ['actBtn', 'act'], ['avatarBtn', 'avatar'], ['chatBtn', 'chat'], ['peopleBtn', 'people'], ['leaveBtn', 'leave']]) setIcon($(id), ic);
 if (matchMedia('(pointer: coarse)').matches) {
   $('helpHint').hidden = false;
   $('helpText').textContent = 'Tap the floor to walk · drag to look · tap a chair to sit';
+}
+
+// ====================================================================
+// actions, expressions, questions, office interactions
+// ====================================================================
+let actTab = 'do';
+let pendingUse = null; // { kind, x, z } walk to an object, then use it
+
+function doAction(id) {
+  if (!local) return;
+  const def = id && ACTIONS[id];
+  if (def?.needsTarget) {
+    // hand papers to the nearest person
+    let best = null, bd = 3.2;
+    for (const p of players.values()) {
+      if (p.isLocal) continue;
+      const d = Math.hypot(p.pos.x - local.pos.x, p.pos.z - local.pos.z);
+      if (d < bd) { bd = d; best = p; }
+    }
+    if (!best) { toast('Walk up to someone first, then hand them the papers 📄'); return; }
+    if (!local.seat) {
+      local.ry = Math.atan2(best.pos.x - local.pos.x, best.pos.z - local.pos.z);
+      sendState(true);
+    }
+    socket.emit('give', { to: best.id });
+    toast(`📄 You handed papers to ${best.name}`, 'ok');
+  }
+  local.action = def ? id : null;
+  local.actionAt = performance.now();
+  socket.emit('act', { action: local.action, emotion: local.emotion });
+  renderActPanel();
+}
+
+function setEmotion(e) {
+  if (!local) return;
+  local.emotion = EMOTIONS.some((x) => x.id === e) ? e : 'neutral';
+  socket.emit('act', { action: local.action, emotion: local.emotion });
+  renderActPanel();
+}
+
+/** a chat message makes the sender "say" it: speech bubble, talking mouth, matching expression */
+function speak(m) {
+  if (!m || m.system) return;
+  const pl = players.get(m.from);
+  if (!pl) return;
+  const now = performance.now();
+  const len = m.text.length;
+  pl.say = { text: m.text, until: now + clamp(2600 + len * 70, 3200, 9000) };
+  pl.talkUntil = now + clamp(len * 65, 700, 4500);
+  const t = m.text.toLowerCase();
+  let emo = null;
+  if (/(haha|hehe|lol|lmao|😂|🤣|😆)/.test(t)) emo = 'laugh';
+  else if (/(love|❤️|<3|😍|🥰)/.test(t)) emo = 'love';
+  else if (/(:\(|sad|sorry|😢|😭|😞)/.test(t)) emo = 'sad';
+  else if (/(angry|mad|ugh|😠|😡)/.test(t)) emo = 'angry';
+  else if (/(wow|omg|what!|😮|😲)/.test(t)) emo = 'surprised';
+  else if (/(yay|great|awesome|nice|thanks|thank you|🎉|!)/.test(t)) emo = 'excited';
+  else if (/\?\s*$/.test(t)) emo = 'thinking';
+  pl.tempEmo = emo ? { emo, until: pl.say.until } : null;
+}
+
+function toggleActPanel(force) {
+  const p = $('actPanel');
+  p.hidden = force === undefined ? !p.hidden : !force;
+  if (!p.hidden) { $('reactBar').hidden = true; renderActPanel(); }
+}
+
+function renderActPanel() {
+  if (!local) return;
+  const def = local.action && ACTIONS[local.action];
+  $('actNow').textContent = def ? `${def.emoji} ${def.label}` : 'Not doing anything';
+  $('actStop').hidden = !def;
+  if ($('actPanel').hidden) return;
+  document.querySelectorAll('.act-tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === actTab));
+  const body = $('actBody');
+  body.innerHTML = '';
+  const section = (title, items) => {
+    const h = document.createElement('div');
+    h.className = 'act-group';
+    h.textContent = title;
+    const grid = document.createElement('div');
+    grid.className = 'act-grid';
+    for (const it of items) {
+      const b = document.createElement('button');
+      b.className = 'act-item' + (it.active ? ' active' : '');
+      b.title = it.label;
+      b.innerHTML = '<span class="e"></span><span class="l"></span>';
+      b.querySelector('.e').textContent = it.emoji;
+      b.querySelector('.l').textContent = it.label;
+      b.onclick = it.onClick;
+      grid.appendChild(b);
+    }
+    body.append(h, grid);
+  };
+  if (actTab === 'do') {
+    const groups = {};
+    for (const [id, a] of Object.entries(ACTIONS)) {
+      if (!a.group) continue;
+      (groups[a.group] ||= []).push({ ...a, active: local.action === id, onClick: () => doAction(local.action === id ? null : id) });
+    }
+    for (const [g, items] of Object.entries(groups)) section(g, items);
+  } else {
+    section('How are you feeling?', EMOTIONS.map((e) => ({ ...e, active: local.emotion === e.id, onClick: () => setEmotion(e.id) })));
+  }
+}
+document.querySelectorAll('.act-tab').forEach((b) => { b.onclick = () => { actTab = b.dataset.tab; renderActPanel(); }; });
+$('actBtn').onclick = () => toggleActPanel();
+$('actStop').onclick = () => doAction(null);
+
+// ----- questions with options -----
+let voteOwner = null;
+function closeAsk() {
+  $('askModal').classList.remove('open');
+  voteOwner = null;
+  canvas.focus();
+}
+function openAskCreate() {
+  voteOwner = null;
+  $('askCreate').hidden = false;
+  $('askVote').hidden = true;
+  const mine = local?.ask;
+  $('askQ').value = mine?.q || '';
+  document.querySelectorAll('.ask-o').forEach((el, i) => { el.value = mine?.options?.[i] || ''; });
+  $('askClear').hidden = !mine;
+  $('askModal').classList.add('open');
+  setTimeout(() => $('askQ').focus(), 50);
+}
+$('askBtn').onclick = () => { toggleActPanel(false); openAskCreate(); };
+$('askCancel').onclick = closeAsk;
+$('voteClose').onclick = closeAsk;
+$('askModal').addEventListener('pointerdown', (e) => { if (e.target === $('askModal')) closeAsk(); });
+$('askSend').onclick = () => {
+  const q = $('askQ').value.trim();
+  const options = [...document.querySelectorAll('.ask-o')].map((el) => el.value.trim()).filter(Boolean);
+  if (!q) { $('askQ').focus(); return; }
+  socket.emit('ask', { q, options: options.length ? options : ['Yes', 'No'] });
+  if (!local.action) doAction('think');
+  closeAsk();
+  toast('❓ Your question is above your head. Others click it to answer.', 'ok');
+};
+$('askQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('askSend').click(); });
+$('askClear').onclick = () => { socket.emit('ask:clear'); if (local.action === 'think') doAction(null); closeAsk(); };
+
+function renderVote(pl) {
+  const a = pl.ask;
+  $('voteQ').textContent = '❓ ' + a.q;
+  $('voteWho').textContent = pl.isLocal ? 'Your question. Answers update live.' : `Asked by ${pl.name}. Pick an answer:`;
+  const box = $('voteOpts');
+  box.innerHTML = '';
+  const total = a.counts.reduce((s, n) => s + n, 0) || 1;
+  const mine = a.votes?.[state.selfId];
+  a.options.forEach((o, i) => {
+    const b = document.createElement('button');
+    b.className = 'vote-opt' + (mine === i ? ' mine' : '');
+    b.innerHTML = '<span class="bar"></span><b></b><span class="t"></span><span class="n"></span>';
+    b.querySelector('.bar').style.width = `${(a.counts[i] / total) * 100}%`;
+    b.querySelector('b').textContent = String.fromCharCode(65 + i);
+    b.querySelector('.t').textContent = o;
+    b.querySelector('.n').textContent = String(a.counts[i]);
+    b.onclick = () => socket.emit('ask:vote', { owner: pl.id, qid: a.qid, choice: i });
+    box.appendChild(b);
+  });
+}
+function openVote(pl) {
+  if (!pl?.ask) return;
+  voteOwner = pl.id;
+  $('askCreate').hidden = true;
+  $('askVote').hidden = false;
+  renderVote(pl);
+  $('askModal').classList.add('open');
+}
+function appendAskCard(pl) {
+  const log = $('chatLog');
+  const el = document.createElement('div');
+  el.className = 'msg system';
+  el.style.cursor = 'pointer';
+  el.textContent = `❓ ${pl.isLocal ? 'You' : pl.name} asked: ${pl.ask.q} (click to answer)`;
+  el.onclick = () => openVote(players.get(pl.id));
+  log.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+  if (!pl.isLocal) toast(`❓ ${pl.name} asked a question. Click their bubble to answer.`, 'ok', 5000);
+}
+
+// ----- office objects you can use -----
+const USES = {
+  coffee: { action: 'coffee', msg: '☕ You grabbed a coffee' },
+  read: { action: 'read', msg: '📖 You picked a book off the shelf' },
+  papers: { action: 'holdpaper', msg: '📄 You picked up some printed papers' },
+};
+function useObject(kind, point) {
+  if (!local || !USES[kind]) return;
+  const d = Math.hypot(point.x - local.pos.x, point.z - local.pos.z);
+  if (d < 1.8) { finishUse(kind, point); return; }
+  if (local.seat) standUp();
+  // walk toward it, stopping a step short
+  const k = (d - 1.0) / d;
+  moveTarget = new THREE.Vector3(local.pos.x + (point.x - local.pos.x) * k, 0, local.pos.z + (point.z - local.pos.z) * k);
+  pendingUse = { kind, x: point.x, z: point.z };
+}
+function finishUse(kind, p) {
+  pendingUse = null;
+  moveTarget = null;
+  if (!local.seat) { local.ry = Math.atan2(p.x - local.pos.x, p.z - local.pos.z); sendState(true); }
+  doAction(USES[kind].action);
+  toast(USES[kind].msg, 'ok');
+}
+function updatePendingUse() {
+  if (!pendingUse || !local) return;
+  const d = Math.hypot(pendingUse.x - local.pos.x, pendingUse.z - local.pos.z);
+  if (d < 1.9) finishUse(pendingUse.kind, pendingUse);
+  else if (!moveTarget && local.speed < 0.05) pendingUse = null; // got stuck: give up quietly
+}
+
+// ----- lobby role picker -----
+{
+  const sel = $('roleInput');
+  for (const r of ROLES) {
+    const o = document.createElement('option');
+    o.value = r;
+    o.textContent = `${ROLE_EMOJI[r]} ${r}`;
+    sel.appendChild(o);
+  }
+  sel.value = store.get('role', 'Employee');
+  if (!sel.value) sel.value = 'Employee';
+  sel.onchange = () => store.set('role', sel.value);
 }
 
 // ====================================================================
@@ -1482,6 +1793,7 @@ function frame() {
 
   if (state.phase === 'room' && local) {
     updateLocal(dt);
+    updatePendingUse();
     updateHover(now);
     const localLevel = micLive() ? levelOf(media.analyser) : 0;
     if (localLevel > 0.035) localLevelHold = now + 300;
@@ -1489,14 +1801,6 @@ function frame() {
       if (!pl.isLocal) updateRemote(pl, dt, now);
       placeAvatar(pl);
       const seat = pl.seat && office.seats.get(pl.seat);
-      animateAvatar(pl.av, dt, { speed: pl.speed, sitting: !!seat, typing: !!seat?.typing });
-      // labels & video panel above the head
-      const rp = pl.av.root.position;
-      const top = rp.y + pl.av.headTop;
-      pl.label.sprite.position.set(rp.x, top + 0.04, rp.z);
-      pl.label.set({ name: pl.name, status: pl.status, mic: pl.isLocal ? micLive() : pl.mic, isLocal: pl.isLocal, presenter: state.presenterId === pl.id });
-      pl.panel.mesh.scale.setScalar(pl.isLocal ? 0.75 : 1);
-      pl.panel.mesh.position.set(rp.x, top + (pl.isLocal ? 0.62 : 0.72), rp.z);
       let speaking;
       if (pl.isLocal) speaking = now < localLevelHold;
       else {
@@ -1504,13 +1808,51 @@ function frame() {
         speaking = now < pl.speakingUntil;
         const v = proximityVolume(pl);
         pl.volume += (v - pl.volume) * damp(8, dt);
-        if (pl.audioEl) pl.audioEl.volume = clamp(pl.volume, 0, 1);
+        const an = pl.analyser;
+        if (an?.gain && actx?.state === 'running') {
+          // spatial route through Web Audio; the <audio> element stays silent
+          if (pl.audioEl) pl.audioEl.muted = true;
+          an.gain.gain.setTargetAtTime(clamp(pl.volume, 0, 1), actx.currentTime, 0.05);
+          an.pan.pan.setTargetAtTime(proximityPan(pl), actx.currentTime, 0.08);
+        } else if (pl.audioEl) {
+          pl.audioEl.muted = false;
+          pl.audioEl.volume = clamp(pl.volume, 0, 1);
+        }
       }
+      // actions end on their own, or when you walk away (except carried things like coffee)
+      const def = pl.action && ACTIONS[pl.action];
+      if (def && pl.isLocal) {
+        if (def.dur && now - pl.actionAt > def.dur * 1000) doAction(null);
+        else if (!def.carry && !def.dur && pl.speed > 0.6) doAction(null);
+        else if (def.dur && pl.speed > 0.6 && !def.carry) doAction(null);
+      }
+      if (pl.tempEmo && now > pl.tempEmo.until) pl.tempEmo = null;
+      const actEmo = def ? def.emo : null;
+      const emotion = pl.tempEmo?.emo || (pl.emotion !== 'neutral' ? pl.emotion : actEmo) || 'neutral';
+      const phoneTalk = pl.action === 'phone' && Math.sin(now / 900) > -0.2;
+      const talking = speaking || now < pl.talkUntil || phoneTalk;
+      animateAvatar(pl.av, dt, { speed: pl.speed, sitting: !!seat, typing: !!seat?.typing && !pl.action, talking, emotion });
+      applyAction(pl.av, dt, { action: pl.action, sitting: !!seat, desk: !!seat?.typing, moving: pl.speed > 0.6 });
+      // labels & video panel above the head
+      const rp = pl.av.root.position;
+      const top = rp.y + pl.av.headTop;
+      pl.label.sprite.position.set(rp.x, top + 0.04, rp.z);
+      pl.label.set({ name: pl.name, status: pl.status, mic: pl.isLocal ? micLive() : pl.mic, isLocal: pl.isLocal, presenter: state.presenterId === pl.id, role: pl.role });
+      pl.panel.mesh.scale.setScalar(pl.isLocal ? 0.75 : 1);
+      pl.panel.mesh.position.set(rp.x, top + (pl.isLocal ? 0.62 : 0.72), rp.z);
+      // bubble: speech > question > action indicator
+      if (pl.say && now > pl.say.until) pl.say = null;
+      if (pl.say) pl.bubble.set('say', { text: pl.say.text });
+      else if (pl.ask) pl.bubble.set('ask', { q: pl.ask.q, options: pl.ask.options, counts: pl.ask.counts, mine: pl.ask.votes?.[state.selfId] });
+      else pl.bubble.set(def?.indicator || null);
+      pl.bubble.update(dt);
+      pl.bubble.sprite.position.set(rp.x, top + (pl.isLocal ? 0.98 : 1.06), rp.z);
       const wantVideo = pl.isLocal ? camLive() : pl.cam;
       pl.panel.update(camera, wantVideo, speaking, state.presenterId === pl.id);
       const hideOwn = pl.isLocal && cam.dist < 2.6;
       pl.panel.mesh.visible = !hideOwn;
       pl.label.sprite.visible = !hideOwn;
+      if (hideOwn) pl.bubble.sprite.visible = false;
     }
     updatePomo();
   }
@@ -1542,4 +1884,4 @@ initMedia();
 setTimeout(() => (urlCode ? $('nameInput') : $('nameInput')).focus(), 300);
 
 // handy for debugging & automated tests
-window.__app = { state, players, rtc, office, media, socket, camera, cam, sitAt, standUp, get local() { return local; }, get screenMode() { return screenMode; } };
+window.__app = { state, players, rtc, office, media, socket, camera, cam, sitAt, standUp, doAction, setEmotion, get local() { return local; }, get screenMode() { return screenMode; } };

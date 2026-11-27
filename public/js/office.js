@@ -1,6 +1,7 @@
 // The office: built from simple shapes, plus colliders, seats and the presentation screen.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 export const BOUNDS = { minX: -15, maxX: 15, minZ: -11, maxZ: 11 };
 export const WALL_H = 3.6;
@@ -124,7 +125,7 @@ export function buildOffice(scene, renderer) {
   const metal = M('metal', { color: '#30323a', roughness: 0.35, metalness: 0.6 });
   const white = M('white', { color: '#f7f7f5', roughness: 0.5 });
   const glassMat = new THREE.MeshStandardMaterial({ color: '#cfe7ff', roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.16, depthWrite: false });
-  const windowMat = new THREE.MeshStandardMaterial({ color: '#d9eeff', emissive: '#bfe1ff', emissiveIntensity: 0.25, roughness: 0.05, transparent: true, opacity: 0.28, depthWrite: false });
+  const windowMat = new THREE.MeshStandardMaterial({ color: '#9fb6da', roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.1, depthWrite: false });
 
   const shadowed = (m, cast = true, receive = true) => { m.castShadow = cast; m.receiveShadow = receive; return m; };
   const rbGeo = new Map();
@@ -149,49 +150,138 @@ export function buildOffice(scene, renderer) {
   const collide = (minX, maxX, minZ, maxZ) => colliders.push({ minX, maxX, minZ, maxZ });
   const collideAround = (x, z, hw, hd) => collide(x - hw, x + hw, z - hd, z + hd);
 
-  // ---------- sky, ground, fog ----------
+  // ---------- night city: the office is the top floor of a high-rise ----------
   const sky = new THREE.Mesh(
-    new THREE.SphereGeometry(220, 32, 16),
+    new THREE.SphereGeometry(220, 48, 24),
     new THREE.ShaderMaterial({
       side: THREE.BackSide, depthWrite: false, fog: false,
-      uniforms: { top: { value: new THREE.Color('#7fb6f0') }, mid: { value: new THREE.Color('#cfe4f7') }, bottom: { value: new THREE.Color('#fbe1c4') } },
+      uniforms: {
+        top: { value: new THREE.Color('#050916') },
+        mid: { value: new THREE.Color('#16244a') },
+        glow: { value: new THREE.Color('#6b4a7a') },
+        moonDir: { value: new THREE.Vector3(-0.55, 0.42, -0.72).normalize() },
+      },
       vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-      fragmentShader: `uniform vec3 top; uniform vec3 mid; uniform vec3 bottom; varying vec3 vP;
-        void main(){ float h = vP.y; vec3 c = h > 0.0 ? mix(mid, top, smoothstep(0.0, 0.6, h)) : mix(mid, bottom, smoothstep(0.0, -0.2, h)); gl_FragColor = vec4(c,1.0);
-        #include <colorspace_fragment>
+      fragmentShader: `uniform vec3 top; uniform vec3 mid; uniform vec3 glow; uniform vec3 moonDir; varying vec3 vP;
+        float hash(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+        void main(){
+          float h = vP.y;
+          vec3 c = mix(mid, top, smoothstep(0.02, 0.55, h));
+          c = mix(c, glow, (1.0 - smoothstep(-0.05, 0.16, h)) * 0.75); // city light glow on the horizon
+          // stars
+          vec3 sp = floor(vP * 260.0);
+          float s = hash(sp);
+          c += vec3(step(0.9975, s) * smoothstep(0.08, 0.35, h) * (0.6 + 0.4 * hash(sp + 3.1)));
+          // moon with a soft halo
+          float m = dot(vP, moonDir);
+          c += vec3(1.0, 0.97, 0.88) * smoothstep(0.9993, 0.9996, m);
+          c += vec3(0.35, 0.38, 0.5) * pow(max(m, 0.0), 300.0) * 0.6;
+          gl_FragColor = vec4(c, 1.0);
+          #include <colorspace_fragment>
         }`,
     }),
   );
   scene.add(sky);
-  scene.fog = new THREE.Fog('#e6eef4', 45, 140);
+  scene.fog = new THREE.Fog('#141c36', 60, 190);
 
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ color: '#a3c38c', roughness: 1 }));
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.y = -0.03;
-  ground.receiveShadow = true;
-  scene.add(ground);
-  // patio slab
-  const slab = new THREE.Mesh(new THREE.BoxGeometry(34, 0.2, 26), M('slab', { color: '#d9d4cc', roughness: 0.95 }));
+  const FLOOR_DROP = 70; // street level is this far below the office floor
+  // window-grid texture for the towers (dark facade, random lit windows)
+  const towerTex = (() => {
+    const c = makeCanvas(256, 512);
+    const g = c.getContext('2d');
+    g.fillStyle = '#0d1220';
+    g.fillRect(0, 0, 256, 512);
+    const lit = ['#ffd98a', '#ffe9b8', '#fff4dc', '#bcd7ff', '#ffc477'];
+    let seed = 7;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    for (let y = 4; y < 512; y += 16) {
+      for (let x = 4; x < 256; x += 16) {
+        const r = rnd();
+        g.fillStyle = r < 0.36 ? lit[Math.floor(rnd() * lit.length)] : r < 0.5 ? '#1f2a44' : '#151c30';
+        g.fillRect(x, y, 10, 11);
+      }
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.anisotropy = 4;
+    return t;
+  })();
+  const towerMat = new THREE.MeshBasicMaterial({ map: towerTex, fog: true });
+  /** one tower as a box whose UVs tile the window grid at a fixed window size */
+  const towerGeo = (w, h, d, x, y, z) => {
+    const g = new THREE.BoxGeometry(w, h, d);
+    const uv = g.attributes.uv;
+    const W = 1 / 16; // texture repeats every 16 m wide, 32 m tall (one window ≈ 1 m)
+    for (let face = 0; face < 6; face++) {
+      for (let k = 0; k < 4; k++) {
+        const i = face * 4 + k;
+        if (face === 2 || face === 3) { uv.setXY(i, 0.001, 0.999); continue; } // roofs: plain facade colour
+        const fw = face < 2 ? d : w;
+        uv.setXY(i, uv.getX(i) * fw * W + x * 0.37, uv.getY(i) * h / 32 + z * 0.11);
+      }
+    }
+    g.translate(x, y, z);
+    return g;
+  };
+  {
+    const parts = [];
+    // our own tower under the office
+    parts.push(towerGeo(34, FLOOR_DROP, 26, 0, -FLOOR_DROP / 2 - 0.2, 0));
+    let seed = 11;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    const placed = [];
+    for (let i = 0; i < 170 && placed.length < 110; i++) {
+      const a = rnd() * Math.PI * 2;
+      const dist = 38 + Math.pow(rnd(), 0.8) * 120;
+      const x = Math.cos(a) * dist, z = Math.sin(a) * dist;
+      const w = 8 + rnd() * 14, d = 8 + rnd() * 14;
+      if (placed.some((p) => Math.abs(p.x - x) < (p.w + w) / 2 + 3 && Math.abs(p.z - z) < (p.d + d) / 2 + 3)) continue;
+      // a few towers are taller than us, most are a bit below the office
+      const h = FLOOR_DROP - 25 + rnd() * 50 + (rnd() < 0.18 ? 35 : 0);
+      placed.push({ x, z, w, d, h });
+      parts.push(towerGeo(w, h, d, x, h / 2 - FLOOR_DROP, z));
+      // stepped crown on some towers
+      if (rnd() < 0.35) parts.push(towerGeo(w * 0.6, 6 + rnd() * 10, d * 0.6, x, h - FLOOR_DROP + 4, z));
+    }
+    const city = new THREE.Mesh(mergeGeometries(parts), towerMat);
+    city.matrixAutoUpdate = false;
+    scene.add(city);
+    // red aircraft-warning lights on the tallest roofs (they blink)
+    const beaconMat = new THREE.MeshBasicMaterial({ color: '#ff3b3b', fog: false });
+    const beacons = [];
+    for (const p of placed.filter((q) => q.h > FLOOR_DROP + 5)) {
+      const b = new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 6), beaconMat);
+      b.position.set(p.x, p.h - FLOOR_DROP + 0.8, p.z);
+      scene.add(b);
+      beacons.push(b);
+    }
+    let bt = 0;
+    updaters.push((dt) => { bt += dt; const on = bt % 1.6 < 0.5; beacons.forEach((b) => { b.visible = on; }); });
+  }
+  // streets far below: dark ground with glowing road grid
+  {
+    const c = makeCanvas(512, 512);
+    const g = c.getContext('2d');
+    g.fillStyle = '#0a0d16'; g.fillRect(0, 0, 512, 512);
+    g.fillStyle = '#ffb35c';
+    for (let i = 0; i < 4; i++) { g.fillRect(i * 128, 0, 6, 512); g.fillRect(0, i * 128, 512, 6); }
+    g.fillStyle = 'rgba(255,180,90,0.25)';
+    for (let i = 0; i < 4; i++) { g.fillRect(i * 128 - 6, 0, 18, 512); g.fillRect(0, i * 128 - 6, 512, 18); }
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(14, 14);
+    const street = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshBasicMaterial({ map: t, fog: true }));
+    street.rotation.x = -Math.PI / 2;
+    street.position.y = -FLOOR_DROP;
+    scene.add(street);
+  }
+  // roof terrace slab around the office
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(34, 0.2, 26), M('slab', { color: '#3a3f4c', roughness: 0.9 }));
   slab.position.y = -0.11;
   slab.receiveShadow = true;
   root.add(slab);
-
-  // trees outside
-  const leaf = M('treeLeaf', { color: '#6b9e5a', roughness: 0.9, flatShading: true });
-  const leaf2 = M('treeLeaf2', { color: '#86b469', roughness: 0.9, flatShading: true });
-  const bark = M('bark', { color: '#7a5a40', roughness: 0.9 });
-  const treeSpots = [[-22, -16], [-26, 2], [-21, 15], [-8, 18], [6, 19], [20, 16], [25, 2], [22, -14], [8, -18], [-6, -19], [-30, -10], [30, -6], [-14, 24], [15, 25]];
-  for (const [x, z] of treeSpots) {
-    const s = 0.8 + ((x * 7 + z * 13) % 10) / 20;
-    cylinder(0.25 * s, 0.35 * s, 2.4 * s, bark, x, 1.2 * s, z);
-    const crown = shadowed(new THREE.Mesh(new THREE.IcosahedronGeometry(1.9 * s, 1), (x + z) % 2 ? leaf : leaf2));
-    crown.position.set(x, 3.6 * s, z);
-    root.add(crown);
-    const c2 = crown.clone();
-    c2.scale.setScalar(0.7);
-    c2.position.set(x + 0.9 * s, 4.6 * s, z - 0.3);
-    root.add(c2);
-  }
 
   // ---------- floors ----------
   const wood = woodTexture();
@@ -364,6 +454,10 @@ export function buildOffice(scene, renderer) {
   function addSeat(id, x, z, ry, opts = {}) {
     seats.set(id, { id, x, z, ry, y: opts.y ?? 0.5, type: opts.type || 'desk', typing: !!opts.typing });
   }
+  /** an object you can click to use (coffee machine, bookshelf, printer) */
+  function useable(obj, kind) {
+    obj.traverse((m) => { if (m.isMesh) { m.userData.interact = kind; clickables.push(m); } });
+  }
   function tag(mesh, ids) {
     mesh.userData.seatIds = ids;
     clickables.push(mesh);
@@ -502,6 +596,7 @@ export function buildOffice(scene, renderer) {
     const shelfG = new THREE.Group();
     shelfG.position.set(sx, 0, sz);
     root.add(shelfG);
+    queueMicrotask(() => useable(shelfG, 'read'));
     box(0.4, 2.0, 0.04, walnut, 0, 1.0, -1.0, shelfG, 0.01);
     box(0.4, 2.0, 0.04, walnut, 0, 1.0, 1.0, shelfG, 0.01);
     for (let i = 0; i < 5; i++) box(0.4, 0.04, 2.0, walnut, 0, 0.05 + i * 0.48, 0, shelfG, 0.01);
@@ -673,6 +768,13 @@ export function buildOffice(scene, renderer) {
   plant(14.1, -2.7, 1.0, M('potTerra', {}));
   // small side table in meeting room
   box(1.2, 0.06, 0.5, oak, 13.8, 0.75, -6, root, 0.02);
+  // printer on the side table: click it to pick up printed papers
+  {
+    const pr = box(0.5, 0.22, 0.4, M('printer', { color: '#e9eaee', roughness: 0.5 }), 13.8, 0.89, -6, root, 0.03);
+    box(0.36, 0.02, 0.24, M('paperTray', { color: '#ffffff', roughness: 0.9 }), 13.8, 1.01, -6.03, root, 0.005);
+    box(0.12, 0.03, 0.02, M('printerLed', { color: '#3ddc84', emissive: '#3ddc84', emissiveIntensity: 0.8 }), 13.62, 0.93, -5.79, root, 0.005);
+    useable(pr, 'papers');
+  }
   for (const s of [-1, 1]) box(0.05, 0.72, 0.45, metal, 13.8 + s * 0.55, 0.36, -6, root, 0.01);
   collideAround(13.8, -6, 0.62, 0.28);
 
@@ -683,7 +785,8 @@ export function buildOffice(scene, renderer) {
     box(0.8, 0.05, 6.05, M('counterTop', { color: '#efe9df', roughness: 0.3 }), cx - 0.02, 0.925, 6.2, root, 0.01);
     collide(cx - 0.42, maxX, 3.15, 9.25);
     // coffee machine
-    box(0.4, 0.45, 0.35, metal, cx, 1.18, 4.0, root, 0.04);
+    const machine = box(0.4, 0.45, 0.35, metal, cx, 1.18, 4.0, root, 0.04);
+    useable(machine, 'coffee');
     box(0.3, 0.1, 0.05, M('cm', { color: '#e86f51', emissive: '#e86f51', emissiveIntensity: 0.4 }), cx - 0.18, 1.28, 4.0, root, 0.01).rotation.y = Math.PI / 2;
     // fruit bowl
     cylinder(0.18, 0.1, 0.08, white, cx, 0.99, 6.2, root, 18);
@@ -744,10 +847,10 @@ export function buildOffice(scene, renderer) {
   root.add(spawnRing);
 
   // ---------- lights ----------
-  const hemi = new THREE.HemisphereLight('#fff6ea', '#8d7a66', 1.25);
+  const hemi = new THREE.HemisphereLight('#ffeedd', '#5c5066', 1.15); // warm interior light at night
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight('#ffe6c7', 2.6);
-  sun.position.set(12, 22, 14);
+  const sun = new THREE.DirectionalLight('#ffe2c2', 2.0); // ceiling lights (casts the soft shadows)
+  sun.position.set(5, 22, 8);
   sun.target.position.set(0, 0, 0);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);

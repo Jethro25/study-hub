@@ -31,7 +31,7 @@ export const AVATAR_SCHEMA = [
     { key: 'height', label: 'Height', type: 'range', min: 0.85, max: 1.15, step: 0.01 },
   ] },
   { section: 'Head', fields: [
-    { key: 'faceShape', label: 'Face shape', type: 'choice', options: ['round', 'oval', 'square'], labels: { square: 'Soft square' } },
+    { key: 'faceShape', label: 'Face shape', type: 'choice', options: ['round', 'oval', 'square', 'heart', 'mochi', 'long', 'diamond', 'bean'], labels: { square: 'Soft square', heart: 'Heart', mochi: 'Chubby mochi', long: 'Long', diamond: 'Diamond', bean: 'Bean' } },
     { key: 'eyes', label: 'Eyes', type: 'choice', options: ['round', 'star', 'sharp', 'sleepy', 'happy', 'wink', 'squint', 'dots'], labels: { round: 'Sparkly', squint: '> <' } },
     { key: 'eyeColor', label: 'Eye color', type: 'color', presets: EYE_COLORS },
     { key: 'mouth', label: 'Mouth', type: 'choice', options: ['smile', 'open', 'grin', 'cat', 'fang', 'tongue', 'cool', 'neutral', 'wavy', 'pout', 'gasp', 'tri', 'sulk'], labels: { cool: 'Smirk', open: 'Happy open', grin: 'Big grin', cat: 'Cat ω', fang: 'Fang', tongue: 'Tongue out', wavy: 'Flustered ~', gasp: 'Gasp', tri: 'Tiny ▲', sulk: 'Sulky' } },
@@ -164,7 +164,48 @@ const PX = FACE_W / (FACE_PHI * 2);
 
 function shade(hex, k) { return '#' + new THREE.Color(hex).multiplyScalar(k).getHexString(); }
 
-function drawFace(cfg) {
+// Facial expressions: which eyes / mouth / brows / extras each emotion uses.
+export const EMOTIONS = [
+  { id: 'neutral', emoji: '🙂', label: 'Normal' },
+  { id: 'happy', emoji: '😊', label: 'Happy' },
+  { id: 'laugh', emoji: '😆', label: 'Laughing' },
+  { id: 'excited', emoji: '🤩', label: 'Excited' },
+  { id: 'love', emoji: '😍', label: 'Love' },
+  { id: 'surprised', emoji: '😮', label: 'Surprised' },
+  { id: 'thinking', emoji: '🤨', label: 'Hmm' },
+  { id: 'confused', emoji: '😵‍💫', label: 'Confused' },
+  { id: 'shy', emoji: '😳', label: 'Shy' },
+  { id: 'sad', emoji: '😟', label: 'Sad' },
+  { id: 'cry', emoji: '😭', label: 'Crying' },
+  { id: 'angry', emoji: '😠', label: 'Angry' },
+  { id: 'sleepy', emoji: '😪', label: 'Sleepy' },
+];
+const EMO = {
+  neutral: {},
+  happy: { eyes: 'happy', mouth: 'open' },
+  laugh: { eyes: 'squint', mouth: 'grin', blush: true },
+  excited: { eyes: 'star', mouth: 'grin', brow: 'up' },
+  love: { eyes: 'heart', mouth: 'smile', blush: true },
+  surprised: { eyes: 'dots', mouth: 'gasp', brow: 'up' },
+  thinking: { mouth: 'cool', brow: 'one' },
+  confused: { eyes: 'swirl', mouth: 'wavy', sweat: true },
+  shy: { mouth: 'wavy', blush: true, sweat: true, brow: 'sad' },
+  sad: { mouth: 'sulk', brow: 'sad' },
+  cry: { eyes: 'closed', mouth: 'wavy', brow: 'sad', tears: true },
+  angry: { eyes: 'sharp', mouth: 'sulk', brow: 'angry', vein: true },
+  sleepy: { eyes: 'closed', mouth: 'pout' },
+};
+function faceOpts(cfg, emotion, blink, talk) {
+  const e = EMO[emotion] || EMO.neutral;
+  let eyes = e.eyes || cfg.eyes;
+  let mouth = e.mouth || cfg.mouth;
+  if (blink && !['closed', 'happy', 'squint', 'heart', 'swirl'].includes(eyes)) eyes = 'closed';
+  if (talk === 1) mouth = 'talk';
+  else if (talk === 2) mouth = ['grin', 'open'].includes(mouth) ? mouth : 'open';
+  return { eyes, mouth, brow: e.brow || '', tears: !!e.tears, vein: !!e.vein, sweat: !!e.sweat, blush: !!(e.blush || cfg.blush) };
+}
+
+function drawFace(cfg, o = faceOpts(cfg, 'neutral', false, 0)) {
   const c = document.createElement('canvas');
   c.width = FACE_W; c.height = FACE_H;
   const g = c.getContext('2d');
@@ -176,7 +217,7 @@ function drawFace(cfg) {
   const brow = cfg.hair === 'bald' ? shade(cfg.skin, 0.55) : shade(cfg.hairColor, 0.75);
 
   // blush (with little anime hatch lines)
-  if (cfg.blush) {
+  if (o.blush) {
     for (const s of [-1, 1]) {
       const bx = FACE_W / 2 + s * 0.55 * PX, by = eyeY + 0.2 * PX;
       const grd = g.createRadialGradient(bx, by, 2, bx, by, 34);
@@ -210,6 +251,25 @@ function drawFace(cfg) {
       g.beginPath(); g.arc(cx, cy - 18, 30, Math.PI * 0.2, Math.PI * 0.8); g.stroke();
       g.lineWidth = 5; g.beginPath(); g.moveTo(cx + 30, cy - 4); g.lineTo(cx + 42, cy - 10); g.stroke();
       g.restore(); return;
+    }
+    if (style === 'closed') {
+      g.strokeStyle = ink; g.lineWidth = 9;
+      g.beginPath(); g.arc(cx, cy - 6, 30, Math.PI * 0.15, Math.PI * 0.85); g.stroke();
+      g.lineWidth = 5; g.beginPath(); g.moveTo(cx + side * 28, cy + 8); g.lineTo(cx + side * 40, cy + 2); g.stroke();
+      g.restore(); return;
+    }
+    if (style === 'heart') {
+      g.fillStyle = '#ff4f7b';
+      heartPath(g, cx, cy + 6, 62); g.fill();
+      g.fillStyle = 'rgba(255,255,255,0.85)';
+      g.beginPath(); g.ellipse(cx - 12, cy - 6, 7, 9, -0.4, 0, Math.PI * 2); g.fill();
+      g.restore(); return;
+    }
+    if (style === 'swirl') {
+      g.strokeStyle = ink; g.lineWidth = 5;
+      g.beginPath();
+      for (let i = 0; i <= 60; i++) { const a = i * 0.32 * side, r = 3 + i * 0.55; g.lineTo(cx + Math.cos(a) * r, cy + 4 + Math.sin(a) * r * 1.1); }
+      g.stroke(); g.restore(); return;
     }
     if (style === 'dots') {
       g.fillStyle = ink;
@@ -277,17 +337,53 @@ function drawFace(cfg) {
     const cx = FACE_W / 2 + side * eyeDX;
     g.save();
     g.translate(cx, eyeY); g.scale(1.42, 1.42); g.translate(-cx, -eyeY);
-    drawEye(cx, eyeY, side, cfg.eyes);
+    drawEye(cx, eyeY, side, o.eyes);
     g.restore();
     // eyebrows
     g.strokeStyle = brow;
     g.lineWidth = 6;
     const by = eyeY - 102;
-    const raise = cfg.mouth === 'cool' && side > 0 ? -8 : 0;
-    g.beginPath();
-    g.moveTo(cx - 26, by + 6 + raise * (side > 0 ? 0.3 : 0));
-    g.quadraticCurveTo(cx, by - 6 + raise, cx + 28 * (side > 0 ? 1 : 1), by + 4 * (cfg.eyes === 'sharp' ? -side : 1) + raise);
-    g.stroke();
+    if (o.brow) {
+      // inner end (toward the nose) and outer end heights per mood
+      let inner = 4, outer = 4, mid = -6;
+      if (o.brow === 'sad') { inner = -14; outer = 10; mid = -4; }
+      if (o.brow === 'angry') { inner = 14; outer = -10; mid = 0; }
+      if (o.brow === 'up') { inner = -14; outer = -10; mid = -22; }
+      if (o.brow === 'one' && side > 0) { inner = -12; outer = -14; mid = -26; }
+      g.beginPath();
+      g.moveTo(cx - side * 26, by + inner);
+      g.quadraticCurveTo(cx, by + mid, cx + side * 28, by + outer);
+      g.stroke();
+    } else {
+      const raise = o.mouth === 'cool' && side > 0 ? -8 : 0;
+      g.beginPath();
+      g.moveTo(cx - 26, by + 6 + raise * (side > 0 ? 0.3 : 0));
+      g.quadraticCurveTo(cx, by - 6 + raise, cx + 28, by + 4 * (o.eyes === 'sharp' ? -side : 1) + raise);
+      g.stroke();
+    }
+    if (o.tears) {
+      const tg = g.createLinearGradient(0, eyeY + 40, 0, eyeY + 150);
+      tg.addColorStop(0, 'rgba(120,195,255,0.95)');
+      tg.addColorStop(1, 'rgba(120,195,255,0.15)');
+      g.fillStyle = tg;
+      const tx = cx + side * 16;
+      g.beginPath(); g.moveTo(tx - 9, eyeY + 30); g.quadraticCurveTo(tx - 12, eyeY + 110, tx - 4, eyeY + 150); g.lineTo(tx + 6, eyeY + 150); g.quadraticCurveTo(tx + 12, eyeY + 110, tx + 9, eyeY + 30); g.fill();
+    }
+  }
+  if (o.sweat) {
+    const sx = FACE_W / 2 - 0.62 * PX, sy = eyeY - 118;
+    g.fillStyle = 'rgba(150,210,255,0.95)';
+    g.beginPath(); g.moveTo(sx, sy - 26); g.quadraticCurveTo(sx + 16, sy, sx, sy + 12); g.quadraticCurveTo(sx - 16, sy, sx, sy - 26); g.fill();
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(sx - 4, sy + 2, 3, 0, Math.PI * 2); g.fill();
+  }
+  if (o.vein) {
+    const vx = FACE_W / 2 + 0.6 * PX, vy = eyeY - 135;
+    g.strokeStyle = '#e8344a'; g.lineWidth = 6;
+    for (let i = 0; i < 4; i++) {
+      const a = i * Math.PI / 2 + Math.PI / 4;
+      const px = vx + Math.cos(a) * 16, py = vy + Math.sin(a) * 16;
+      g.beginPath(); g.arc(px, py, 10, a + Math.PI * 0.6, a + Math.PI * 1.4); g.stroke();
+    }
   }
 
   // tiny nose
@@ -300,7 +396,11 @@ function drawFace(cfg) {
   g.strokeStyle = '#6b2e35';
   g.fillStyle = '#7a2f3a';
   g.lineWidth = 4.5;
-  switch (cfg.mouth) {
+  switch (o.mouth) {
+    case 'talk':
+      g.beginPath(); g.ellipse(mx, my + 2, 11, 7, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#ff8d96'; g.beginPath(); g.ellipse(mx, my + 5, 7, 3, 0, 0, Math.PI * 2); g.fill();
+      break;
     case 'smile':
       g.beginPath(); g.arc(mx, my - 12, 15, Math.PI * 0.2, Math.PI * 0.8); g.stroke(); break;
     case 'neutral':
@@ -356,6 +456,40 @@ function drawFace(cfg) {
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
   return tex;
+}
+
+// ---------- fabric surface: a fine knit/weave bump so clothes read as cloth, not plastic ----------
+let fabricTex = null;
+function fabricBump() {
+  if (fabricTex) return fabricTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = '#808080';
+  g.fillRect(0, 0, 128, 128);
+  // knit "V" stitches in columns
+  for (let y = 0; y < 128; y += 8) {
+    for (let x = 0; x < 128; x += 8) {
+      g.fillStyle = 'rgba(255,255,255,0.35)';
+      g.beginPath(); g.ellipse(x + 2.5, y + 4, 2, 3.6, 0.5, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.ellipse(x + 5.5, y + 4, 2, 3.6, -0.5, 0, Math.PI * 2); g.fill();
+      g.fillStyle = 'rgba(0,0,0,0.25)';
+      g.fillRect(x + 3.6, y, 0.8, 8);
+    }
+  }
+  // a little noise so it isn't too regular
+  const img = g.getImageData(0, 0, 128, 128);
+  let seed = 3;
+  for (let i = 0; i < img.data.length; i += 4) {
+    seed = (seed * 16807) % 2147483647;
+    const n = ((seed / 2147483647) - 0.5) * 30;
+    img.data[i] += n; img.data[i + 1] += n; img.data[i + 2] += n;
+  }
+  g.putImageData(img, 0, 0);
+  fabricTex = new THREE.CanvasTexture(c);
+  fabricTex.wrapS = fabricTex.wrapT = THREE.RepeatWrapping;
+  fabricTex.repeat.set(14, 9);
+  return fabricTex;
 }
 
 // ---------- fabric patterns + chest prints (canvas textures, shared) ----------
@@ -561,17 +695,71 @@ function tube(rt, rb, len, seg = 24) {
   return geo(`tube${rt}_${rb}_${len}_${seg}`, () => new THREE.CylinderGeometry(rt, rb, len, seg, 1, true));
 }
 /** Chibi head shape: the lower half narrows into soft cheeks and a small chin. Applied to the head and the face shell. */
-function chibiDeform(g) {
+// Head shapes. Every shape is a sculpted sphere so the painted face always wraps around it.
+// chin: how much the lower half narrows, sq: squared-off jaw, cheek: puffy cheeks,
+// crown: wider/narrower top, bean: forehead leans back and cheeks push forward
+const HEAD_SHAPES = {
+  round: { scale: [0.88, 0.9, 0.88], chin: 0.16 },
+  oval: { scale: [0.82, 0.95, 0.85], chin: 0.2 },
+  square: { scale: [0.86, 0.88, 0.86], chin: 0.03, sq: 0.55 },
+  heart: { scale: [0.9, 0.9, 0.87], chin: 0.36, crown: 0.05 },
+  mochi: { scale: [0.95, 0.84, 0.88], chin: -0.02, cheek: 0.11 },
+  long: { scale: [0.8, 1.0, 0.84], chin: 0.22 },
+  diamond: { scale: [0.84, 0.93, 0.85], chin: 0.32, cheek: 0.07, crown: -0.07 },
+  bean: { scale: [0.86, 0.9, 0.9], chin: 0.1, bean: 0.08 },
+};
+function chibiDeform(g, shape = 'round') {
+  const S = HEAD_SHAPES[shape] || HEAD_SHAPES.round;
   const p = g.attributes.position;
   for (let i = 0; i < p.count; i++) {
+    let x = p.getX(i), z = p.getZ(i);
     const y = p.getY(i) / 0.3;
-    if (y < 0) { const k = 1 - 0.16 * Math.pow(-y, 2.2); p.setX(i, p.getX(i) * k); p.setZ(i, p.getZ(i) * (1 - 0.08 * Math.pow(-y, 2))); }
-    else p.setZ(i, p.getZ(i) * (1 + 0.04 * y)); // fuller cranium
+    if (y < 0) {
+      const d = -y;
+      let k = 1 - S.chin * Math.pow(d, 2.2);
+      if (S.cheek) k += S.cheek * Math.sin(Math.min(1, d * 1.6) * Math.PI) * 0.9;
+      if (S.sq) {
+        const r = Math.hypot(x, z) || 1e-6;
+        const ax = Math.abs(x) / r, az = Math.abs(z) / r;
+        const box = 1 / Math.max(Math.pow(Math.pow(ax, 4) + Math.pow(az, 4), 0.25), 1e-3);
+        k *= 1 + (box - 1) * S.sq * Math.min(1, d * 1.8);
+      }
+      x *= k;
+      z *= 1 - 0.08 * Math.pow(d, 2);
+    } else {
+      z *= 1 + 0.04 * y; // fuller cranium
+      if (S.crown) x *= 1 + S.crown * y;
+    }
+    if (S.bean) z += S.bean * 0.3 * (y > 0 ? -0.35 * y : 0.15 * y * y);
+    p.setX(i, x); p.setZ(i, z);
   }
   g.computeVertexNormals();
   return g;
 }
-const headGeo = () => geo('chibiHead', () => chibiDeform(new THREE.SphereGeometry(0.3, 48, 36)));
+const headGeo = (shape) => geo(`chibiHead_${shape}`, () => chibiDeform(new THREE.SphereGeometry(0.3, 48, 36), shape));
+
+/**
+ * Hair base shell: a sphere cut along a line that sits high on the forehead and drops
+ * down over the ears and to the nape at the back, so no bald patches show.
+ * front / side / back are the cut elevations (radians) at those azimuths.
+ */
+const hairShellGeo = (r, front, side, back) => geo(`hshell${r}_${front}_${side}_${back}`, () => {
+  const g = new THREE.SphereGeometry(r, 44, 30);
+  const p = g.attributes.position;
+  const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const az = Math.atan2(x, z), a = Math.abs(az);
+    const cut = front + (side - front) * ss(0.55, 1.35, a) + (back - side) * ss(1.7, 2.7, a);
+    const el = Math.asin(Math.max(-1, Math.min(1, y / r)));
+    if (el < cut) {
+      const c = Math.cos(cut) * r;
+      p.setXYZ(i, Math.sin(az) * c, Math.sin(cut) * r, Math.cos(az) * c);
+    }
+  }
+  g.computeVertexNormals();
+  return g;
+});
 
 const R = 0.3; // head radius
 const HEAD_Y = 1.35;
@@ -633,16 +821,17 @@ export function buildAvatar(rawCfg) {
   body.add(bob);
 
   // ----- clothing materials -----
+  const cloth = { bumpMap: fabricBump(), bumpScale: 1.4 };
   const pattern = (hex, pat, rough, extra = {}) => {
-    if (!pat || pat === 'plain') return M(hex, rough, extra);
-    return M('#ffffff', rough, { map: patternTexture(hex, pat), ...extra });
+    if (!pat || pat === 'plain') return M(hex, rough, { ...cloth, ...extra });
+    return M('#ffffff', rough, { map: patternTexture(hex, pat), ...cloth, ...extra });
   };
   const topPat = cfg.top === 'striped' && cfg.topPattern === 'plain' ? 'stripes' : cfg.topPattern;
   const topMat = pattern(cfg.topColor, topPat, 0.8, { side: THREE.DoubleSide });
   const bottomMat = pattern(cfg.bottomColor, cfg.bottomPattern, 0.85, { side: THREE.DoubleSide });
   const pleatMat = pattern(cfg.bottomColor, cfg.bottomPattern, 0.85, { side: THREE.DoubleSide, flatShading: true });
   const bottomDark = M(shade(cfg.bottomColor, 0.78), 0.85);
-  const rib = M(shade(cfg.topColor, 0.82), 0.9);
+  const rib = M(shade(cfg.topColor, 0.82), 0.9, { bumpMap: fabricBump(), bumpScale: 2.2 });
   const cream = M('#f5eee1', 0.8, { side: THREE.DoubleSide });
   const sockMat = M('#f7f4ef', 0.9);
   const sole = M('#f7f7f5', 0.6);
@@ -771,15 +960,22 @@ export function buildAvatar(rawCfg) {
   const st = (rAt(0.63) + 0.016) * w; // skirts start where the hips are widest
   if (pantsLike || B === 'shorts') shell(0.55, 0.81, 0.008, bottomMat, bob);
   else shell(0.62, 0.81, 0.012, bottomMat, bob);
-  if (B === 'skirt') mesh(tube(st, st * 1.32, 0.15, 16), pleatMat, bob, 0, 0.555, 0).scale.z = 0.82;
+  const skirts = [];
+  const skirtPivot = new THREE.Group();
+  skirtPivot.position.set(0, 0.63, 0);
+  bob.add(skirtPivot);
+  const SP = 0.63;
+  const skirtPart = (g, mat, y) => { const m = mesh(g, mat, skirtPivot, 0, y - SP, 0); m.scale.z = 0.82; return m; };
+  if (B === 'skirt') skirtPart(tube(st, st * 1.32, 0.15, 16), pleatMat, 0.555);
   else if (B === 'ruffle') {
-    mesh(tube(st, st * 1.16, 0.08), bottomMat, bob, 0, 0.59, 0).scale.z = 0.82;
-    mesh(tube(st * 1.1, st * 1.42, 0.09), bottomMat, bob, 0, 0.51, 0).scale.z = 0.82;
-    const lace = mesh(torus(+(st * 1.4).toFixed(3), 0.011), M('#fffaf2', 0.9), bob, 0, 0.465, 0);
+    skirtPart(tube(st, st * 1.16, 0.08), bottomMat, 0.59);
+    skirtPart(tube(st * 1.1, st * 1.42, 0.09), bottomMat, 0.51);
+    const lace = mesh(torus(+(st * 1.4).toFixed(3), 0.011), M('#fffaf2', 0.9), skirtPivot, 0, 0.465 - SP, 0);
     lace.rotation.x = Math.PI / 2; lace.scale.y = 0.82;
-  } else if (B === 'long') mesh(tube(st, st * 1.55, 0.4), bottomMat, bob, 0, 0.43, 0).scale.z = 0.82;
-  else if (B === 'sundress') mesh(tube(st, st * 1.5, 0.22), bottomMat, bob, 0, 0.52, 0).scale.z = 0.82;
-  else if (B === 'pinafore') mesh(tube(st, st * 1.42, 0.19, 16), pleatMat, bob, 0, 0.535, 0).scale.z = 0.82;
+  } else if (B === 'long') skirtPart(tube(st, st * 1.55, 0.4), bottomMat, 0.43);
+  else if (B === 'sundress') skirtPart(tube(st, st * 1.5, 0.22), bottomMat, 0.52);
+  else if (B === 'pinafore') skirtPart(tube(st, st * 1.42, 0.19, 16), pleatMat, 0.535);
+  if (skirtPivot.children.length) skirts.push({ pivot: skirtPivot, long: B === 'long' });
 
   // ----- tops -----
   const oversize = ['sweater', 'hoodie', 'zipup', 'varsity'].includes(T) ? 1.08 : 1;
@@ -936,7 +1132,7 @@ export function buildAvatar(rawCfg) {
       const finger = mesh(taper(0.0062, 0.0055, 0.024, 8), skin, hand, fx, -0.062, 0.0);
       finger.rotation.z = (f - 1) * -0.25 * side * -1;
     }
-    arms[side < 0 ? 'L' : 'R'] = { shoulder, elbow };
+    arms[side < 0 ? 'L' : 'R'] = { shoulder, elbow, hand };
   }
 
   // ----- neck + head -----
@@ -944,52 +1140,56 @@ export function buildAvatar(rawCfg) {
   const head = new THREE.Group();
   head.position.set(0, HEAD_Y, 0);
   bob.add(head);
-  const shapeScale = { round: [0.88, 0.9, 0.88], oval: [0.82, 0.95, 0.85], square: [0.86, 0.88, 0.86] }[cfg.faceShape];
+  const shapeScale = (HEAD_SHAPES[cfg.faceShape] || HEAD_SHAPES.round).scale;
   const headInner = new THREE.Group();
   headInner.scale.set(...shapeScale);
   head.add(headInner);
-  const square = cfg.faceShape === 'square';
-  if (square) mesh(rbox(0.6, 0.6, 0.6, 0.24), skin, headInner);
-  else mesh(headGeo(), skin, headInner);
+  mesh(headGeo(cfg.faceShape), skin, headInner);
 
   // ears
   // big round ears that stick out (like the reference) when the hair doesn't cover them
   const earInner = M(shade(cfg.skin, 0.86), 0.65);
   const earsShow = ['bald', 'spiky', 'manbun'].includes(cfg.hair) && !['beanie', 'bucket', 'frog'].includes(cfg.hat);
   for (const s of earsShow ? [-1, 1] : []) {
-    const ex = (0.262 * shapeScale[0] / 0.88 + 0.04) * s;
-    const ear = mesh(sphere(0.085, 18, 14), skin, head, ex, -0.045, -0.01);
-    ear.scale.set(0.5, 1, 0.82);
+    const ex = (0.262 * shapeScale[0] / 0.88 + 0.025) * s;
+    const ear = mesh(sphere(0.07, 18, 14), skin, head, ex, -0.05, -0.01);
+    ear.scale.set(0.45, 0.95, 0.78);
     ear.rotation.y = s * 0.35;
-    const inner = mesh(sphere(0.058, 14, 10), earInner, head, ex + s * 0.02, -0.045, 0.014);
+    const inner = mesh(sphere(0.048, 14, 10), earInner, head, ex + s * 0.016, -0.05, 0.012);
     inner.scale.set(0.3, 0.78, 0.6);
     inner.rotation.y = s * 0.35;
   }
 
   // painted face
-  const faceTex = drawFace(cfg);
-  disposables.push(faceTex);
-  const faceMat = new THREE.MeshStandardMaterial({ map: faceTex, transparent: true, roughness: 0.6, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+  // Expressions: face textures are painted on demand (emotion x blink x talking frame) and cached.
+  const faceCache = new Map();
+  const faceMat = new THREE.MeshStandardMaterial({ transparent: true, roughness: 0.6, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+  const faceFor = (emotion, blink, talk) => {
+    const k = `${emotion}|${blink ? 1 : 0}|${talk}`;
+    let t = faceCache.get(k);
+    if (!t) {
+      if (faceCache.size >= 24) {
+        for (const [kk, tt] of faceCache) { if (tt !== faceMat.map) { tt.dispose(); faceCache.delete(kk); break; } }
+      }
+      t = drawFace(cfg, faceOpts(cfg, emotion, blink, talk));
+      faceCache.set(k, t);
+    }
+    return t;
+  };
+  faceMat.map = faceFor('neutral', false, 0);
   disposables.push(faceMat);
-  if (square) {
-    const fw = (FACE_PHI * 2) * R * 0.95, fh = FACE_THETA_LEN * R * 0.95;
-    const plane = new THREE.Mesh(geo('facePlane', () => new THREE.PlaneGeometry(fw, fh)), faceMat);
-    plane.position.set(0, (FACE_THETA0 - FACE_THETA_LEN / 2) * R, 0.302);
-    headInner.add(plane);
-  } else {
-    const face = new THREE.Mesh(
-      geo('faceShell', () => chibiDeform(new THREE.SphereGeometry(R * 1.004, 44, 32, Math.PI / 2 - FACE_PHI, FACE_PHI * 2, Math.PI / 2 - FACE_THETA0, FACE_THETA_LEN))),
-      faceMat,
-    );
-    headInner.add(face);
-  }
+  const face = new THREE.Mesh(
+    geo(`faceShell_${cfg.faceShape}`, () => chibiDeform(new THREE.SphereGeometry(R * 1.004, 44, 32, Math.PI / 2 - FACE_PHI, FACE_PHI * 2, Math.PI / 2 - FACE_THETA0, FACE_THETA_LEN), cfg.faceShape)),
+    faceMat,
+  );
+  headInner.add(face);
 
   // ----- hair -----
   const hairGroup = new THREE.Group();
   headInner.add(hairGroup);
-  if (square) hairGroup.scale.set(1.06, 1.02, 1.06);
-  else if (cfg.faceShape === 'oval') hairGroup.scale.set(1.03, 1.0, 1.03);
-  const hr = square ? R * 1.06 : R;
+  if (['square', 'mochi', 'heart'].includes(cfg.faceShape)) hairGroup.scale.set(1.04, 1.0, 1.04);
+  else if (cfg.faceShape === 'oval' || cfg.faceShape === 'long') hairGroup.scale.set(1.03, 1.0, 1.03);
+  const hr = R;
   let style = cfg.hair;
   const hatCovers = ['cap', 'beanie', 'bucket', 'frog'].includes(cfg.hat);
   if (hatCovers && ['spiky', 'curly', 'bun', 'spacebuns', 'manbun'].includes(style)) style = 'short';
@@ -997,6 +1197,7 @@ export function buildAvatar(rawCfg) {
 
   const down = new THREE.Vector3(0, -1, 0);
   const basis = new THREE.Matrix4();
+  const hairDyn = []; // swinging hair pivots
   /**
    * A tapered lock of hair rooted on the scalp.
    * az: 0 = front, + = avatar's left. el: elevation (radians, 0 = level with the ears).
@@ -1011,7 +1212,18 @@ export function buildAvatar(rawCfg) {
     if (opts.straight) t.lerp(down, opts.straight).normalize();
     if (opts.out) t.addScaledVector(n, opts.out).normalize();
     const center = n.clone().multiplyScalar(hr + (opts.lift || 0)).addScaledVector(t, len * 0.46).addScaledVector(n, depth * 0.3);
-    const m = mesh(opts.spike ? cone(1, 2) : lockGeo(), opts.mat || hairM, hairGroup, center.x, center.y, center.z);
+    let parent = hairGroup;
+    if (opts.swing) {
+      // hang the lock from a pivot at its root so it can swing
+      const rootP = n.clone().multiplyScalar(hr + (opts.lift || 0));
+      const pivot = new THREE.Group();
+      pivot.position.copy(rootP);
+      hairGroup.add(pivot);
+      center.sub(rootP);
+      parent = pivot;
+      hairDyn.push({ pivot, w: opts.swing, x: 0, vx: 0, z: 0, vz: 0 });
+    }
+    const m = mesh(opts.spike ? cone(1, 2) : lockGeo(), opts.mat || hairM, parent, center.x, center.y, center.z);
     // orient: local +Y = root direction (-t), local Z = scalp normal
     const yAx = t.clone().negate();
     const zAx = n.clone().addScaledVector(yAx, -n.dot(yAx)).normalize();
@@ -1022,12 +1234,8 @@ export function buildAvatar(rawCfg) {
     m.scale.set(width, len / 2, depth);
     return m;
   }
-  const capHair = (tilt = -0.45, tl = Math.PI * 0.56, k = 1.07) => {
-    tl = Math.max(tl, Math.PI * 0.62); // always reach down to the nape
-    const c = mesh(hemi(hr * k, tl), hairM, hairGroup);
-    c.rotation.x = tilt;
-    return c;
-  };
+  /** hair base: high on the forehead, down over the ears and to the nape */
+  const capHair = (front = 0.3, k = 1.07, side = -0.6, back = -1.05) => mesh(hairShellGeo(+(hr * k).toFixed(4), front, side, back), hairM, hairGroup);
   const ahoge = (x = 0.02, rot = 0.4) => {
     if (['cap', 'beanie', 'bucket', 'frog'].includes(cfg.hat)) return;
     const a = mesh(torus(0.06, 0.011, Math.PI * 1.1), hairM, hairGroup, x, hr * 1.04 + 0.045, -0.02);
@@ -1060,6 +1268,13 @@ export function buildAvatar(rawCfg) {
       lock(az, el + (i % 2) * 0.05, len * (0.94 + (i % 3) * 0.04), 0.11, 0.06, { straight: 0.55, ...opts });
     }
   };
+  /** short layered tips at the nape (instead of a frill around the middle of the head) */
+  const napeTips = (len = 0.14, count = 7) => {
+    for (let i = 0; i < count; i++) {
+      const az = Math.PI + (i / (count - 1) - 0.5) * 2.2;
+      lock(az, -0.62 + (i % 2) * 0.05, len * (0.8 + (i % 3) * 0.1), 0.085, 0.022, { straight: 0.4, lift: 0.012 });
+    }
+  };
   const bunAt = (x, y, z, r) => {
     const b = mesh(sphere(r, 20, 16), hairM, hairGroup, x, y, z);
     // a few swirl strands on the bun
@@ -1074,67 +1289,70 @@ export function buildAvatar(rawCfg) {
 
   switch (style) {
     case 'short':
-      capHair(-0.45, Math.PI * 0.55);
+      capHair(0.3);
       bangs('messy', 8, 0.17);
-      sideLocks(0.17, 0.35);
-      backLocks(0.2, 7, 0.35, { straight: 0.3 });
+      sideLocks(0.17, 0.3);
+      napeTips(0.15, 7);
       ahoge();
       break;
     case 'swept':
-      capHair(-0.45, Math.PI * 0.55);
+      capHair(0.32);
       bangs('swept', 8, 0.2);
-      sideLocks(0.16, 0.35);
-      backLocks(0.19, 7, 0.38, { straight: 0.3 });
+      sideLocks(0.16, 0.3);
+      napeTips(0.13, 7);
       break;
     case 'curtains':
-      capHair(-0.45, Math.PI * 0.55);
+      capHair(0.32);
       bangs('parted', 9, 0.22);
-      sideLocks(0.2, 0.3);
-      backLocks(0.2, 7, 0.36, { straight: 0.3 });
+      sideLocks(0.2, 0.28);
+      napeTips(0.15, 7);
       ahoge(-0.03, -0.6);
       break;
     case 'spiky': {
-      capHair(-0.4, Math.PI * 0.5);
+      capHair(0.38, 1.06, -0.2, -0.8);
       bangs('spiky', 7, 0.2);
-      const spikes = [[0, 1, 0.1], [0.5, 0.8, 0.2], [-0.5, 0.8, 0.2], [0, 0.75, -0.6], [0.6, 0.6, -0.45], [-0.6, 0.6, -0.45], [0.3, 0.5, -0.8], [-0.3, 0.5, -0.8], [0.85, 0.35, -0.1], [-0.85, 0.35, -0.1]];
-      for (const [x, y, z] of spikes) {
-        const d = new THREE.Vector3(x, y, z).normalize();
-        const c = mesh(cone(0.07, 0.2), hairM, hairGroup, d.x * hr * 1.02, d.y * hr * 1.02, d.z * hr * 1.02);
+      // spikes all over the crown and back, swept up and back
+      for (let i = 0; i < 26; i++) {
+        const yy = 1 - (i / 25) * 1.25;
+        const rad = Math.sqrt(Math.max(0, 1 - yy * yy));
+        const th = i * 2.39996;
+        const d = new THREE.Vector3(Math.sin(th) * rad, yy, Math.cos(th) * rad);
+        if (d.z > 0.55 && d.y < 0.75) continue; // leave the face to the bangs
+        d.y += 0.25; d.z -= 0.15; d.normalize();
+        const c = mesh(cone(0.065, 0.17 + (i % 3) * 0.03), hairM, hairGroup, d.x * hr * 0.98, d.y * hr * 0.98, d.z * hr * 0.98);
         c.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d);
       }
       break;
     }
     case 'manbun':
-      capHair(-0.5, Math.PI * 0.52, 1.06);
+      capHair(0.42, 1.06, -0.15, -0.75);
       bangs('swept', 6, 0.15);
       bunAt(0, hr * 0.82, -hr * 0.52, 0.08);
       mesh(torus(0.05, 0.014), acc, hairGroup, 0, hr * 0.74, -hr * 0.43).rotation.x = -0.9;
       break;
     case 'bob':
-      capHair(-0.45, Math.PI * 0.57);
+      capHair(0.3);
       bangs('blunt', 10, 0.2);
-      sideLocks(0.3, 0.28, { out: 0.15 });
-      backLocks(0.32, 11, 0.28, { out: 0.12 });
+      sideLocks(0.3, 0.28, { out: 0.15, swing: 0.25 });
+      backLocks(0.32, 11, 0.28, { out: 0.12, swing: 0.3 });
       ahoge();
       break;
     case 'long':
-      capHair(-0.45, Math.PI * 0.57);
+      capHair(0.3);
       bangs('blunt', 9, 0.21);
-      sideLocks(0.55, 0.2);
-      backLocks(0.62, 11, 0.25, { straight: 0.75 });
+      sideLocks(0.55, 0.2, { swing: 0.45 });
+      backLocks(0.62, 11, 0.25, { straight: 0.75, swing: 0.6 });
       break;
     case 'wavy': {
-      capHair(-0.45, Math.PI * 0.57);
+      capHair(0.3);
       bangs('messy', 9, 0.2);
-      sideLocks(0.48, 0.2, { out: 0.12 });
-      backLocks(0.52, 11, 0.25, { straight: 0.6, out: 0.08 });
-      const ends = [];
-      for (let i = 0; i < 9; i++) { const a = Math.PI + (i / 8 - 0.5) * 3.6; ends.push([Math.sin(a) * hr * 1.2, -0.38, Math.cos(a) * hr * 1.15]); }
+      sideLocks(0.48, 0.2, { out: 0.12, swing: 0.45 });
+      backLocks(0.52, 11, 0.25, { straight: 0.6, out: 0.08, swing: 0.6 });
       ahoge();
       break;
     }
     case 'curly': {
-      capHair(-0.35, Math.PI * 0.55, 1.07);
+      capHair(0.35, 1.07, -0.3, -0.85);
       const n = 46;
       for (let i = 0; i < n; i++) {
         const yy = 1 - (i / (n - 1)) * 1.45;
@@ -1148,20 +1366,20 @@ export function buildAvatar(rawCfg) {
       break;
     }
     case 'ponytail': {
-      capHair(-0.45, Math.PI * 0.56);
+      capHair(0.3, 1.07, -0.3, -0.7);
       bangs('messy', 8, 0.19);
       sideLocks(0.24, 0.3);
       mesh(torus(0.045, 0.016), acc, hairGroup, 0, hr * 0.55, -hr * 0.85).rotation.x = -0.5;
-      const tail = lock(Math.PI, 0.55, 0.5, 0.13, 0.12, { straight: 0.7, lift: 0.04 });
+      const tail = lock(Math.PI, 0.55, 0.48, 0.095, 0.09, { straight: 0.75, lift: 0.04, swing: 1 });
       tail.position.z -= 0.06;
       break;
     }
     case 'sidetail': {
-      capHair(-0.45, Math.PI * 0.56);
+      capHair(0.32);
       bangs('swept', 8, 0.2);
       sideLocks(0.22, 0.3);
-      backLocks(0.24, 7, 0.36, { straight: 0.3 });
-      lock(1.45, 0.62, 0.48, 0.13, 0.12, { out: 0.2, straight: 0.35, lift: 0.03 });
+      napeTips(0.15, 7);
+      lock(1.45, 0.62, 0.48, 0.13, 0.12, { out: 0.2, straight: 0.35, lift: 0.03, swing: 0.9 });
       const bx = Math.sin(1.4) * hr * 0.95, by = hr * 0.62, bz = Math.cos(1.4) * hr * 0.6;
       for (const s of [-1, 1]) {
         const wing = mesh(sphere(0.05, 12, 10), acc, hairGroup, bx + 0.015, by + s * 0.045, bz);
@@ -1172,34 +1390,38 @@ export function buildAvatar(rawCfg) {
       break;
     }
     case 'bun':
-      capHair(-0.45, Math.PI * 0.56);
+      capHair(0.3, 1.07, -0.3, -0.75);
       bangs('messy', 8, 0.2);
       sideLocks(0.3, 0.25, { sway: 0.2 });
-      backLocks(0.22, 7, 0.38, { straight: 0.3 });
+      napeTips(0.12, 7);
       bunAt(0, hr * 1.0, -hr * 0.3, 0.12);
       break;
     case 'spacebuns':
-      capHair(-0.45, Math.PI * 0.56);
+      capHair(0.3);
       bangs('blunt', 9, 0.19);
       sideLocks(0.28, 0.25, { out: 0.1 });
       backLocks(0.26, 9, 0.3, { straight: 0.5 });
       for (const s of [-1, 1]) bunAt(s * hr * 0.68, hr * 0.78, -hr * 0.12, 0.1);
       break;
     case 'braid': {
-      capHair(-0.45, Math.PI * 0.56);
+      capHair(0.32);
       bangs('swept', 8, 0.2);
       sideLocks(0.22, 0.3);
-      backLocks(0.26, 9, 0.32, { straight: 0.5 });
+      napeTips(0.17, 9);
       // braid over the avatar's right shoulder, in front
-      let x = -hr * 0.78, y = -0.02, z = hr * 0.35;
+      const braidP = new THREE.Group();
+      braidP.position.set(-hr * 0.78, 0.03, hr * 0.35);
+      hairGroup.add(braidP);
+      hairDyn.push({ pivot: braidP, w: 0.8, x: 0, vx: 0, z: 0, vz: 0 });
+      let x = 0, y = -0.05, z = 0;
       for (let i = 0; i < 6; i++) {
         const r = 0.055 - i * 0.004;
-        const seg = mesh(sphere(r, 12, 10), i % 2 ? hairShade : hairM, hairGroup, x + (i % 2 ? 0.012 : -0.012), y, z);
+        const seg = mesh(sphere(r, 12, 10), i % 2 ? hairShade : hairM, braidP, x + (i % 2 ? 0.012 : -0.012), y, z);
         seg.scale.set(1, 1.15, 0.85);
         y -= 0.07; z += 0.012;
       }
-      mesh(torus(0.026, 0.01), acc, hairGroup, x, y + 0.03, z).rotation.x = Math.PI / 2;
-      const tip = mesh(lockGeo(), hairM, hairGroup, x, y - 0.03, z);
+      mesh(torus(0.026, 0.01), acc, braidP, x, y + 0.03, z).rotation.x = Math.PI / 2;
+      const tip = mesh(lockGeo(), hairM, braidP, x, y - 0.03, z);
       tip.scale.set(0.035, 0.06, 0.03);
       break;
     }
@@ -1216,10 +1438,9 @@ export function buildAvatar(rawCfg) {
     const lens = M('#bfe3ff', 0.1, { transparent: true, opacity: 0.22 });
     for (const s of [-1, 1]) {
       const n = eyePos(s);
-      const p = n.clone().multiplyScalar(square ? 0.3 : R + 0.025);
-      if (square) p.z = 0.3;
+      const p = n.clone().multiplyScalar(R + 0.025);
       const ring = mesh(torus(0.078, 0.009), frame, headInner, p.x, p.y, p.z);
-      ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), square ? new THREE.Vector3(0, 0, 1) : n);
+      ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
       const l = mesh(geo('lens', () => new THREE.CircleGeometry(0.076, 24)), lens, headInner, p.x, p.y, p.z - 0.002);
       l.quaternion.copy(ring.quaternion);
       l.castShadow = false;
@@ -1227,7 +1448,7 @@ export function buildAvatar(rawCfg) {
       arm.rotation.y = 0.05 * s;
     }
     const bp = new THREE.Vector3(0, -0.42, 1).normalize().multiplyScalar(R + 0.03);
-    mesh(cyl(0.006, 0.006, 0.07, 6), frame, headInner, 0, bp.y + 0.03, square ? 0.31 : bp.z).rotation.z = Math.PI / 2;
+    mesh(cyl(0.006, 0.006, 0.07, 6), frame, headInner, 0, bp.y + 0.03, bp.z).rotation.z = Math.PI / 2;
   }
   // ----- hats -----
   const H = cfg.hat;
@@ -1331,8 +1552,15 @@ export function buildAvatar(rawCfg) {
   return {
     cfg, root, body, bob, torso, head, legs, arms,
     hipHeight, headTop,
+    dyn: { hair: hairDyn, skirts },
     anim: { walk: 0, phase: 0, sit: 0, typing: 0, t: Math.random() * 10 },
+    /** show an expression: emotion id, eyes blinking, talking mouth frame (0 closed, 1 half, 2 open) */
+    setFace(emotion = 'neutral', blink = false, talk = 0) {
+      const t = faceFor(EMO[emotion] ? emotion : 'neutral', blink, talk);
+      if (faceMat.map !== t) faceMat.map = t;
+    },
     dispose() {
+      faceCache.forEach((t) => t.dispose());
       disposables.forEach((d) => d.dispose());
       root.removeFromParent();
     },
@@ -1384,6 +1612,41 @@ export function animateAvatar(av, dt, state) {
   av.head.rotation.y = Math.sin(a.t * 0.5) * 0.14 * (1 - walk);
   av.head.rotation.z = Math.sin(a.t * 0.8) * 0.04 * (1 - walk) + Math.sin(a.phase) * 0.04 * walk;
   av.head.rotation.x = Math.sin(a.t * 0.7) * 0.03 + (state.typing ? 0.15 : 0) * sit;
+
+  // ----- secondary motion: hair swings and skirts swish -----
+  const ry = av.root.rotation.y;
+  let turn = a.lastRy === undefined ? 0 : ry - a.lastRy;
+  turn = Math.atan2(Math.sin(turn), Math.cos(turn)) / Math.max(dt, 1e-3); // rad/s
+  a.lastRy = ry;
+  a.turn = lerp(a.turn || 0, turn, 1 - Math.exp(-dt * 8));
+  const accel = (walk - (a.lastWalk ?? walk)) / Math.max(dt, 1e-3);
+  a.lastWalk = walk;
+  const bounce = Math.sin(a.phase * 2) * walk;
+  for (const d of av.dyn.hair) {
+    // hair trails behind when moving, flies out when turning, bobs with each step
+    const tx = (walk * 0.32 + Math.max(-0.4, Math.min(0.4, accel * 0.05)) + bounce * 0.08) * d.w * (1 - sit);
+    const tz = Math.max(-0.45, Math.min(0.45, -a.turn * 0.09)) * d.w;
+    d.vx += ((tx - d.x) * 60 - d.vx * 7) * dt;
+    d.vz += ((tz - d.z) * 60 - d.vz * 7) * dt;
+    d.x += d.vx * dt;
+    d.z += d.vz * dt;
+    d.pivot.rotation.set(d.x, 0, d.z);
+  }
+  for (const s of av.dyn.skirts) {
+    // swish side to side with the steps, flare a little, and drape forward over the lap when sitting
+    const sway = Math.sin(a.phase) * 0.07 * walk;
+    const flare = 1 + 0.07 * walk * Math.abs(Math.sin(a.phase)) + Math.min(0.12, Math.abs(a.turn) * 0.02);
+    s.pivot.rotation.set(-sit * (s.long ? 1.15 : 1.3) + walk * 0.05, -a.turn * 0.02, sway);
+    s.pivot.scale.set(flare, 1 - sit * 0.15, flare);
+  }
+
+  // face: blink every few seconds, flap the mouth while talking
+  if (a.blinkAt === undefined) a.blinkAt = a.t + 1.5 + Math.random() * 2;
+  if (a.t > a.blinkAt) { a.blinkUntil = a.t + 0.13; a.blinkAt = a.t + 2.4 + Math.random() * 3; }
+  if (state.talking) {
+    if (!(a.t < a.talkNext)) { a.talkFrame = [0, 1, 2, 2, 1, 1][Math.floor(Math.random() * 6)]; a.talkNext = a.t + 0.07 + Math.random() * 0.09; }
+  } else a.talkFrame = 0;
+  av.setFace(state.emotion || 'neutral', a.t < (a.blinkUntil || 0), a.talkFrame || 0);
 }
 
 // ---------- small images for the editor's option tiles ----------

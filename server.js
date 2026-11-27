@@ -75,6 +75,18 @@ function newRoom(code) {
   };
 }
 
+// Roles, actions and expressions players can pick (keep in sync with public/js/actions.js + avatar.js)
+const ROLES = new Set(['Manager', 'Team Lead', 'Employee', 'Intern', 'HR', 'Designer', 'Developer', 'Secretary', 'Student', 'Teacher', 'Guest']);
+const ACTIONS = new Set(['wave', 'clap', 'cheer', 'dance', 'nod', 'shake', 'shrug', 'facepalm', 'bow', 'point', 'raise', 'stretch',
+  'think', 'idea', 'write', 'sign', 'read', 'type', 'listen', 'phone', 'coffee', 'give', 'holdpaper', 'sleep']);
+const EMOTIONS = new Set(['neutral', 'happy', 'laugh', 'excited', 'love', 'surprised', 'thinking', 'confused', 'shy', 'sad', 'cry', 'angry', 'sleepy']);
+const pickRole = (r) => (ROLES.has(r) ? r : 'Employee');
+function publicAsk(a) {
+  if (!a) return null;
+  const counts = a.options.map(() => 0);
+  for (const c of a.votes.values()) counts[c]++;
+  return { qid: a.qid, q: a.q, options: a.options, counts, votes: Object.fromEntries(a.votes) };
+}
 const clampStr = (s, n) => String(s ?? '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, n);
 const num = (v, lo, hi, d = 0) => {
   const n = Number(v);
@@ -100,6 +112,7 @@ function publicPlayer(p) {
   return {
     id: p.id, name: p.name, avatar: p.avatar, pos: p.pos, status: p.status,
     mic: p.mic, cam: p.cam, seat: p.seat, streamId: p.streamId, joinedAt: p.joinedAt,
+    role: p.role, action: p.action, emotion: p.emotion, ask: publicAsk(p.ask),
   };
 }
 
@@ -194,6 +207,10 @@ io.on('connection', (socket) => {
       avatar: sanitizeAvatar(payload?.avatar),
       pos: { x: num(payload?.pos?.x, -20, 20, 0), y: 0, z: num(payload?.pos?.z, -20, 20, 4), ry: 0, a: 0 },
       status: 'Available',
+      role: pickRole(payload?.role),
+      action: null,
+      emotion: 'neutral',
+      ask: null,
       mic: !!payload?.mic,
       cam: !!payload?.cam,
       seat: null,
@@ -261,7 +278,8 @@ io.on('connection', (socket) => {
     if ('mic' in data) me.mic = !!data.mic;
     if ('cam' in data) me.cam = !!data.cam;
     if ('name' in data) me.name = clampStr(data.name, 24) || me.name;
-    io.to(room.code).emit('profile', { id: socket.id, status: me.status, mic: me.mic, cam: me.cam, name: me.name, streamId: me.streamId });
+    if ('role' in data) me.role = pickRole(data.role);
+    io.to(room.code).emit('profile', { id: socket.id, status: me.status, mic: me.mic, cam: me.cam, name: me.name, streamId: me.streamId, role: me.role });
   });
 
   socket.on('seat', (seatId, ack) => {
@@ -287,6 +305,43 @@ io.on('connection', (socket) => {
     const t = clampStr(text, 500);
     if (!t) return;
     pushChat(room, { id: Date.now() + Math.random(), from: socket.id, name: me.name, text: t, t: Date.now() });
+  });
+
+  // actions + expressions
+  socket.on('act', (d) => {
+    if (!inRoom() || !d) return;
+    if ('action' in d) me.action = ACTIONS.has(d.action) ? d.action : null;
+    if ('emotion' in d) me.emotion = EMOTIONS.has(d.emotion) ? d.emotion : 'neutral';
+    socket.to(room.code).emit('act', { id: socket.id, action: me.action, emotion: me.emotion });
+  });
+  // hand something (papers) to another player
+  socket.on('give', (d) => {
+    if (!inRoom() || !d || !room.players.has(d.to) || d.to === socket.id) return;
+    io.to(room.code).emit('give', { from: socket.id, to: d.to, item: 'papers' });
+  });
+  // ask a question with options A/B/C/D that others can vote on
+  socket.on('ask', (d) => {
+    if (!inRoom() || !d) return;
+    const q = clampStr(d.q, 140);
+    const options = (Array.isArray(d.options) ? d.options : []).map((o) => clampStr(o, 60)).filter(Boolean).slice(0, 4);
+    if (!q) return;
+    me.ask = { qid: Date.now().toString(36), q, options, votes: new Map() };
+    io.to(room.code).emit('ask', { id: socket.id, ask: publicAsk(me.ask) });
+  });
+  socket.on('ask:vote', (d) => {
+    if (!inRoom() || !d) return;
+    const owner = room.players.get(d.owner);
+    const a = owner?.ask;
+    if (!a || a.qid !== d.qid) return;
+    const c = Number(d.choice);
+    if (!Number.isInteger(c) || c < 0 || c >= a.options.length) return;
+    a.votes.set(socket.id, c);
+    io.to(room.code).emit('ask', { id: owner.id, ask: publicAsk(a) });
+  });
+  socket.on('ask:clear', () => {
+    if (!inRoom()) return;
+    me.ask = null;
+    io.to(room.code).emit('ask', { id: socket.id, ask: null });
   });
 
   const EMOJIS = new Set(['👏', '😂', '❤️', '👍', '🎉', '🤔']);

@@ -68,6 +68,7 @@ export function createVideoPanel() {
   let videoTex = null;
   let videoEl = null;
   let showingVideo = false;
+  let wantMirror = 0;
   const idle = new THREE.Color('#ffffff');
   const speakingCol = new THREE.Color('#3ddc84');
   const presenterCol = new THREE.Color('#f6c177');
@@ -99,14 +100,15 @@ export function createVideoPanel() {
         if (videoTex) videoTex.colorSpace = THREE.SRGBColorSpace;
         videoEl = el;
       }
-      uniforms.mirror.value = mirror ? 1 : 0;
+      wantMirror = mirror ? 1 : 0;
+      uniforms.mirror.value = showingVideo ? wantMirror : 0;
     },
     /** call every frame */
     update(camera, wantVideo, speaking, presenter) {
       mesh.quaternion.copy(camera.quaternion);
       const ok = wantVideo && videoEl && videoEl.readyState >= 2 && videoEl.videoWidth > 0;
       if (ok) {
-        if (!showingVideo) { uniforms.map.value = videoTex; showingVideo = true; }
+        if (!showingVideo) { uniforms.map.value = videoTex; showingVideo = true; uniforms.mirror.value = wantMirror; }
         // cover-fit the video into the panel
         const va = videoEl.videoWidth / videoEl.videoHeight, pa = PANEL_W / PANEL_H;
         if (va > pa) { uniforms.uvScale.value.set(pa / va, 1); uniforms.uvOffset.value.set((1 - pa / va) / 2, 0); }
@@ -115,6 +117,7 @@ export function createVideoPanel() {
         uniforms.map.value = initialsTex;
         uniforms.uvScale.value.set(1, 1);
         uniforms.uvOffset.value.set(0, 0);
+        uniforms.mirror.value = 0; // initials are never mirrored
         showingVideo = false;
       }
       const target = speaking ? speakingCol : presenter ? presenterCol : idle;
@@ -138,6 +141,12 @@ const STATUS_COLORS = {
 export const STATUSES = Object.keys(STATUS_COLORS);
 export const statusColor = (s) => STATUS_COLORS[s] || '#9aa0a6';
 
+export const ROLE_EMOJI = {
+  Manager: '👔', 'Team Lead': '⭐', Employee: '💼', Intern: '🌱', HR: '🤝', Designer: '🎨',
+  Developer: '💻', Secretary: '🗂️', Student: '📚', Teacher: '🍎', Guest: '👋',
+};
+export const ROLES = Object.keys(ROLE_EMOJI);
+
 export function createNameLabel() {
   const canvas = makeCanvas(640, 160);
   const tex = new THREE.CanvasTexture(canvas);
@@ -151,8 +160,9 @@ export function createNameLabel() {
   let last = '';
   return {
     sprite,
-    set({ name, status, mic, isLocal, presenter }) {
-      const key = JSON.stringify([name, status, mic, isLocal, presenter]);
+    set({ name, status, mic, isLocal, presenter, role }) {
+      const key = JSON.stringify([name, status, mic, isLocal, presenter, role]);
+      if (role) status = `${ROLE_EMOJI[role] || ''} ${role} · ${status}`.trim();
       if (key === last) return;
       last = key;
       const g = canvas.getContext('2d');

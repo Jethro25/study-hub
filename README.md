@@ -15,19 +15,22 @@ Walk around a cozy 3D office with your friends, see each other's webcams floatin
 
 | | |
 |---|---|
-| **Lobby** | Display name, avatar preview, create a room or join with a 5-letter code, camera/mic preview with level meter and device pickers |
+| **Lobby** | Display name, role (Manager, Team Lead, Employee, Intern, HR, Designer, Developer, Secretary, Student, Teacher, Guest) shown on your name tag, avatar preview, create a room or join with a 5-letter code, camera/mic preview with level meter and device pickers |
 | **Avatar editor** | Live rotating 3D preview (drag to spin). Skin tone, body type, height, face shape, eyes, expression, 8 hairstyles + color, top/bottom style + colors, shoes, glasses, cap, headphones, backpack, lanyard. Randomize / Reset. Saved in your browser and synced live to everyone, even mid-session |
-| **Office** | Study pods (8 desks), lounge with couches, meeting room with a big screen and 12 seats, café corner, plants, windows, warm lights and soft shadows. All built from simple shapes, with no model downloads |
+| **Office** | Top floor of a high-rise at night: lit city towers, stars and a moon outside the windows. Study pods (8 desks), lounge with couches, meeting room with a big screen and 12 seats, café corner, plants, windows, warm lights and soft shadows. All built from simple shapes, with no model downloads |
 | **Movement** | WASD / arrow keys (Shift to run), click the floor to walk there, drag to look, scroll to zoom. Third-person camera that won't clip through walls |
 | **Webcams** | Rounded live video panel above each avatar, always facing you. Initials when the camera is off. Green ring while someone talks |
-| **Proximity audio** | People sound louder when they're close and fade with distance. Voices are muffled through the meeting-room glass |
-| **Presenting** | *Present* claims the stage. Share your screen **or** upload slide images / a PDF and click Prev/Next (or PageUp/PageDown or a presentation clicker) for everyone at once. Presenter voice can be heard by everyone at full volume. Everyone else gets **Take a seat** (teleports to a seat facing the screen) and **View screen** (full-screen 2D view of the slides or screen) |
+| **Proximity audio** | People sound louder when they're close and fade with distance, and come from their direction (left/right). Voices are muffled through the meeting-room glass. Avatars' mouths move while they talk on the mic |
+| **Actions & expressions** | *Actions* button (or `E`): wave, clap, cheer, dance, nod, shake, shrug, facepalm, bow, point, raise hand, stretch, **thinking** (loading bubble), **got an idea** (light bulb), write notes, sign papers, read, type, listen, phone call, coffee, nap (Zzz), **hand papers** to the person next to you. 13 facial expressions. Click the coffee machine, bookshelf or printer to use them |
+| **Questions** | *Ask a question* puts a card with options A/B/C/D above your head. Others click it (or the chat line) to vote, and counts update live |
+| **Talking** | Chat messages appear as a speech bubble over the sender, their mouth moves, and their face matches the message (laughing, surprised, thinking…) |
+| **Presenting** | *Present* claims the stage. Share your screen (with its sound: tick *Share tab audio*) **or** upload slide images / a PDF and click Prev/Next (or PageUp/PageDown or a presentation clicker) for everyone at once. Presenter voice can be heard by everyone at full volume. Everyone else gets **Take a seat** (teleports to a seat facing the screen) and **View screen** (full-screen 2D view of the slides or screen) |
 | **Study** | Click a desk, chair or couch to sit (Space or WASD to stand). Shared Pomodoro timer at the top and on the wall board, with a chime when phases change. Status: Available / Studying / On break / Presenting / Busy / Away (switches to "Studying" automatically when you sit at a desk) |
 | **Social** | Text chat with unread badge, emoji reactions 👏 😂 ❤️ 👍 🎉 🤔 (keys 1–6) that float up from your avatar, people list with "Go to" teleport |
 | **Reliability** | Clean join/leave (avatars, videos and peer connections are removed), automatic ICE restart if a call drops, automatic rejoin of the same room if the server restarts, 15 Hz position updates with smooth interpolation |
 
 ### Keyboard shortcuts
-`WASD`/arrows move · `Shift` run · `Space` stand up · `Enter` chat · `M` mute · `V` camera · `1–6` reactions · `PageUp/PageDown` change slides (presenter) · `Esc` close dialogs
+`WASD`/arrows move · `Shift` run · `Space` stand up · `Enter` chat · `M` mute · `V` camera · `1–6` reactions · `E` actions · `X` stop action · `PageUp/PageDown` change slides (presenter) · `Esc` close dialogs
 
 ---
 
