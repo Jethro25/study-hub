@@ -1,11 +1,95 @@
 // "Edit Avatar" modal: live, rotating 3D preview + controls generated from AVATAR_SCHEMA.
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { AVATAR_SCHEMA, DEFAULT_AVATAR, buildAvatar, animateAvatar, normalizeAvatar, randomAvatar } from './avatar.js';
+import { AVATAR_SCHEMA, DEFAULT_AVATAR, buildAvatar, animateAvatar, normalizeAvatar, randomAvatar, faceThumb, patternSwatch, printSwatch } from './avatar.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const LABELS = { tshirt: 'T-shirt' };
 const pretty = (s) => LABELS[s] || s.charAt(0).toUpperCase() + s.slice(1);
+
+// ---------- option tiles: each choice shown as a little picture ----------
+// Which part of the avatar a field's thumbnail should frame.
+const TILE_VIEW = {
+  bodyType: 'full', faceShape: 'head', hair: 'hair', top: 'torso', bottom: 'lower', shoeStyle: 'feet', socks: 'legs', hat: 'hat',
+  eyes: 'eyes2d', mouth: 'mouth2d', topPattern: 'pattern', bottomPattern: 'pattern', print: 'print',
+};
+const VIEWS = {
+  full: { target: [0, 0.8, 0], pos: [0, 0.9, 3.9], rot: 0.35 },
+  head: { target: [0, 1.3, 0], pos: [0, 1.34, 2.1], rot: 0.3 },
+  hair: { target: [0, 1.3, 0], pos: [0, 1.36, 2.25], rot: 0.6 },
+  hat: { target: [0, 1.42, 0], pos: [0, 1.5, 2.05], rot: 0.35 },
+  torso: { target: [0, 0.83, 0], pos: [0, 0.8, 1.35], rot: 0.3 },
+  lower: { target: [0, 0.4, 0], pos: [0, 0.42, 1.75], rot: 0.3 },
+  legs: { target: [0, 0.16, 0], pos: [0, 0.22, 0.95], rot: 0.35 },
+  feet: { target: [0, 0.05, 0.02], pos: [0, 0.2, 0.62], rot: 0.5 },
+};
+const tileCache = new Map();
+let tileR = null;
+function tileRenderer() {
+  if (tileR) return tileR;
+  const canvas = document.createElement('canvas');
+  const r = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
+  r.setPixelRatio(1);
+  r.setSize(160, 160, false);
+  r.toneMapping = THREE.ACESFilmicToneMapping;
+  r.outputColorSpace = THREE.SRGBColorSpace;
+  const scene = new THREE.Scene();
+  scene.add(new THREE.HemisphereLight('#fff6ea', '#7d6b5a', 1.5));
+  const key = new THREE.DirectionalLight('#fff0dd', 2.0);
+  key.position.set(1.5, 3, 3);
+  scene.add(key);
+  const cam = new THREE.PerspectiveCamera(30, 1, 0.05, 20);
+  tileR = { r, scene, cam };
+  return tileR;
+}
+function renderTile(cfg, view) {
+  const { r, scene, cam } = tileRenderer();
+  const v = VIEWS[view];
+  const av = buildAvatar(cfg);
+  av.root.rotation.y = v.rot;
+  animateAvatar(av, 0.016, { speed: 0, sitting: false });
+  av.head.rotation.set(0, 0, 0);
+  scene.add(av.root);
+  const h = cfg.height || 1;
+  cam.position.set(v.pos[0], v.pos[1] * h, v.pos[2]);
+  cam.lookAt(v.target[0], v.target[1] * h, v.target[2]);
+  r.render(scene, cam);
+  const url = r.domElement.toDataURL('image/png');
+  av.dispose();
+  return url;
+}
+function tileImage(cfg, field, option) {
+  const view = TILE_VIEW[field];
+  const variant = { ...cfg, [field]: option };
+  const key = `${view}|${JSON.stringify(variant)}`;
+  if (tileCache.has(key)) return { url: tileCache.get(key) };
+  let make;
+  if (view === 'eyes2d') make = () => faceThumb(variant, 'eyes');
+  else if (view === 'mouth2d') make = () => faceThumb(variant, 'mouth');
+  else if (view === 'pattern') make = () => patternSwatch(field === 'topPattern' ? cfg.topColor : cfg.bottomColor, option);
+  else if (view === 'print') make = () => printSwatch(option, cfg.accColor, cfg.topColor);
+  else make = () => renderTile(variant, view);
+  return {
+    key,
+    make: () => { const url = make(); if (tileCache.size > 600) tileCache.clear(); tileCache.set(key, url); return url; },
+  };
+}
+// Tiles are drawn a few per frame so the editor stays responsive.
+let tileJobs = [];
+let tileLoop = false;
+function queueTile(img, job) {
+  tileJobs.push({ img, job });
+  if (!tileLoop) { tileLoop = true; requestAnimationFrame(runTiles); }
+}
+function runTiles() {
+  const start = performance.now();
+  while (tileJobs.length && performance.now() - start < 14) {
+    const { img, job } = tileJobs.shift();
+    if (!img.isConnected) continue;
+    try { img.src = job.make(); img.classList.remove('loading'); } catch (e) { console.warn('tile', e); }
+  }
+  if (tileJobs.length) requestAnimationFrame(runTiles); else tileLoop = false;
+}
 
 let preview = null; // lazily created renderer + scene
 
@@ -21,8 +105,8 @@ function ensurePreview(canvas) {
   scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
   scene.environmentIntensity = 0.5;
   const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
-  camera.position.set(0, 1.05, 4.3);
-  camera.lookAt(0, 0.86, 0);
+  camera.position.set(0, 1.02, 4.8);
+  camera.lookAt(0, 0.84, 0);
   scene.add(new THREE.HemisphereLight('#fff5e8', '#7d6b5a', 1.2));
   const key = new THREE.DirectionalLight('#ffe9cf', 2.2);
   key.position.set(2.5, 4, 3);
@@ -144,7 +228,25 @@ export function createEditor({ root }) {
       row.appendChild(label);
       const ctl = document.createElement('div');
       ctl.className = 'field-ctl';
-      if (f.type === 'choice') {
+      if (f.type === 'choice' && TILE_VIEW[f.key]) {
+        ctl.classList.add('tiles');
+        for (const o of f.options) {
+          const b = document.createElement('button');
+          b.className = 'tile' + (cfg[f.key] === o ? ' active' : '');
+          const name = (f.labels && f.labels[o]) || pretty(o);
+          b.title = name;
+          const img = document.createElement('img');
+          img.alt = '';
+          const t = tileImage(cfg, f.key, o);
+          if (t.url) img.src = t.url;
+          else { img.className = 'loading'; queueTile(img, t); }
+          const cap = document.createElement('span');
+          cap.textContent = name;
+          b.append(img, cap);
+          b.onclick = () => { set(f.key, o); renderFields(); };
+          ctl.appendChild(b);
+        }
+      } else if (f.type === 'choice') {
         ctl.classList.add('chips');
         for (const o of f.options) {
           const b = document.createElement('button');
@@ -228,8 +330,8 @@ export function createEditor({ root }) {
     const r = canvas.parentElement.getBoundingClientRect();
     preview.renderer.setSize(r.width, r.height, false);
     preview.camera.aspect = r.width / r.height;
-    preview.camera.position.set(0, 1.05, 4.3);
-    preview.camera.lookAt(0, 0.86, 0);
+    preview.camera.position.set(0, 1.02, 4.8);
+    preview.camera.lookAt(0, 0.84, 0);
     preview.camera.updateProjectionMatrix();
   }
 

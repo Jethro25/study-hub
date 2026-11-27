@@ -495,6 +495,61 @@ function printTexture(kind, color) {
   return t;
 }
 
+// ---------- sculpted body shapes (smooth lathe surfaces, like a single base mesh) ----------
+// Torso silhouette: [world y, radius] from crotch to the base of the neck.
+const BODY_PROFILE = [
+  [0.5, 0.0], [0.505, 0.055], [0.52, 0.09], [0.56, 0.114], [0.62, 0.124], [0.68, 0.116], [0.74, 0.1],
+  [0.78, 0.096], [0.84, 0.106], [0.9, 0.12], [0.94, 0.122], [0.965, 0.108], [0.985, 0.08], [0.997, 0.045], [1.0, 0.0],
+];
+const DEPTH = 0.72; // torso is an ellipse in cross-section
+function rAt(y) {
+  const P = BODY_PROFILE;
+  if (y <= P[0][0]) return P[0][1];
+  for (let i = 1; i < P.length; i++) {
+    if (y <= P[i][0]) {
+      const [y0, r0] = P[i - 1], [y1, r1] = P[i];
+      const t = (y - y0) / (y1 - y0);
+      const s = t * t * (3 - 2 * t); // smooth between samples
+      return r0 + (r1 - r0) * s;
+    }
+  }
+  return 0;
+}
+/** A slice of the torso surface between y0 and y1, pushed out by `inflate` (for clothes). */
+function bodySlice(y0, y1, inflate = 0, flare = 0) {
+  return geo(`slice${y0}_${y1}_${inflate}_${flare}`, () => {
+    const pts = [];
+    const n = Math.max(6, Math.round((y1 - y0) / 0.012));
+    for (let i = 0; i <= n; i++) {
+      const y = y0 + ((y1 - y0) * i) / n;
+      let r = rAt(y);
+      if (r < 0.0005 && (i === 0 || i === n)) { pts.push(new THREE.Vector2(0, y)); continue; }
+      r += inflate + flare * Math.max(0, (y1 - y) / (y1 - y0) - 0.5);
+      pts.push(new THREE.Vector2(r, y));
+    }
+    const g = new THREE.LatheGeometry(pts, 36);
+    g.computeVertexNormals();
+    return g;
+  });
+}
+/** Smooth tapered capsule (rounded ends), centered on its local origin, along Y. */
+function taper(rt, rb, len, seg = 20) {
+  return geo(`taper${rt}_${rb}_${len}`, () => {
+    const pts = [];
+    const steps = 8;
+    for (let i = 0; i <= steps; i++) { const a = (i / steps) * (Math.PI / 2); pts.push(new THREE.Vector2(rt * Math.sin(a), len / 2 + rt * Math.cos(a))); }
+    for (let i = 0; i <= steps; i++) { const a = Math.PI / 2 + (i / steps) * (Math.PI / 2); pts.push(new THREE.Vector2(rb * Math.sin(a), -len / 2 + rb * Math.cos(a))); }
+    pts.reverse();
+    const g = new THREE.LatheGeometry(pts, seg);
+    g.computeVertexNormals();
+    return g;
+  });
+}
+/** Open tapered tube (for flared trouser legs, sleeves, skirts). */
+function tube(rt, rb, len, seg = 24) {
+  return geo(`tube${rt}_${rb}_${len}_${seg}`, () => new THREE.CylinderGeometry(rt, rb, len, seg, 1, true));
+}
+
 const R = 0.3; // head radius
 const HEAD_Y = 1.3;
 
@@ -560,261 +615,296 @@ export function buildAvatar(rawCfg) {
     return M('#ffffff', rough, { map: patternTexture(hex, pat), ...extra });
   };
   const topPat = cfg.top === 'striped' && cfg.topPattern === 'plain' ? 'stripes' : cfg.topPattern;
-  const topMat = pattern(cfg.topColor, topPat, 0.8);
-  const bottomMat = pattern(cfg.bottomColor, cfg.bottomPattern, 0.85);
-  const bottomDS = pattern(cfg.bottomColor, cfg.bottomPattern, 0.85, { side: THREE.DoubleSide });
+  const topMat = pattern(cfg.topColor, topPat, 0.8, { side: THREE.DoubleSide });
+  const bottomMat = pattern(cfg.bottomColor, cfg.bottomPattern, 0.85, { side: THREE.DoubleSide });
   const pleatMat = pattern(cfg.bottomColor, cfg.bottomPattern, 0.85, { side: THREE.DoubleSide, flatShading: true });
   const bottomDark = M(shade(cfg.bottomColor, 0.78), 0.85);
-  const rib = M(shade(cfg.topColor, 0.8), 0.9);
-  const cream = M('#f5eee1', 0.8);
+  const rib = M(shade(cfg.topColor, 0.82), 0.9);
+  const cream = M('#f5eee1', 0.8, { side: THREE.DoubleSide });
   const sockMat = M('#f7f4ef', 0.9);
   const sole = M('#f7f7f5', 0.6);
   const shoeGloss = M(cfg.shoeColor, 0.25);
+  const gold = M('#f0c75e', 0.3, { metalness: 0.4 });
+
+  // ----- sculpted torso -----
+  const TY = 0.62; // torso pivot height (it leans while walking)
+  const wz = DEPTH * Math.min(w, 1.1);
+  const frontAt = (y, inf = 0) => (rAt(y) + inf) * wz;
+  const torso = new THREE.Group();
+  torso.position.set(0, TY, 0);
+  bob.add(torso);
+  /** body-shaped shell between world heights y0..y1 */
+  const shell = (y0, y1, inf, mat, parent = torso, flare = 0) => {
+    const m = mesh(bodySlice(y0, y1, inf, flare), mat, parent, 0, parent === torso ? -TY : 0, 0);
+    m.scale.set(w, 1, wz);
+    return m;
+  };
+  /** a vertical strip that hugs the body (zips, plackets, lapels, straps). angle 0 = front centre */
+  const strip = (y0, y1, inf, angle, halfWidth, mat, parent = torso) => {
+    const g = geo(`strip${y0}_${y1}_${inf}_${angle}_${halfWidth}`, () => {
+      const pts = [];
+      for (let i = 0; i <= 10; i++) { const y = y0 + ((y1 - y0) * i) / 10; pts.push(new THREE.Vector2(rAt(y) + inf, y)); }
+      return new THREE.LatheGeometry(pts, 4, angle - halfWidth, halfWidth * 2);
+    });
+    const m = mesh(g, mat, parent, 0, parent === torso ? -TY : 0, 0);
+    m.scale.set(w, 1, wz);
+    return m;
+  };
+  /** an elliptical ring hugging the body at height y (hems, necklines, waistbands) */
+  const ring = (y, inf, thick, mat, parent = torso) => {
+    const r0 = rAt(y) + inf;
+    const m = mesh(torus(+r0.toFixed(3), thick), mat, parent, 0, y - (parent === torso ? TY : 0), 0);
+    m.rotation.x = Math.PI / 2;
+    m.scale.set(w, wz, 1);
+    return m;
+  };
+  const dot = (y, inf, mat, r = 0.008, x = 0) => mesh(sphere(r, 8, 6), mat, torso, x, y - TY, frontAt(y, inf) + r * 0.5);
+  shell(0.5, 0.775, 0, skin, bob);
+  shell(0.73, 1.0, 0, skin);
 
   // ----- legs (hip pivot at 0.6) -----
   const HIP = 0.6;
   const B = cfg.bottom;
+  const T = cfg.top;
   const pantsLike = ['pants', 'wide', 'cargo', 'joggers', 'track', 'overalls'].includes(B);
   const longSock = cfg.socks === 'long' || cfg.socks === 'legwarmers';
-  const thighMat = pantsLike ? bottomMat : skin;
-  const shinMat = pantsLike ? bottomMat : longSock ? sockMat : skin;
   const legs = {};
-  const SY = -0.272; // shoe height in the knee frame
+  const SY = -0.28; // shoe height in the knee frame
 
   const buildShoe = (knee) => {
     switch (cfg.shoeStyle) {
       case 'hightops':
-        mesh(rbox(0.11, 0.07, 0.2, 0.032), shoe, knee, 0, SY + 0.005, 0.03);
-        mesh(rbox(0.116, 0.026, 0.206, 0.012), sole, knee, 0, SY - 0.03, 0.03);
-        mesh(cyl(0.064, 0.066, 0.08, 16), shoe, knee, 0, SY + 0.06, 0);
-        mesh(sphere(0.045, 12, 10), sole, knee, 0, SY - 0.005, 0.1).scale.set(1.1, 0.7, 0.8);
+        mesh(rbox(0.086, 0.058, 0.155, 0.028), shoe, knee, 0, SY, 0.022);
+        mesh(rbox(0.09, 0.022, 0.16, 0.01), sole, knee, 0, SY - 0.026, 0.022);
+        mesh(taper(0.05, 0.05, 0.04, 16), shoe, knee, 0, SY + 0.045, 0);
+        mesh(sphere(0.036, 12, 10), sole, knee, 0, SY - 0.004, 0.08).scale.set(1.1, 0.7, 0.8);
         break;
       case 'maryjanes':
       case 'platforms': {
-        const lift = cfg.shoeStyle === 'platforms' ? 0.035 : 0;
-        mesh(rbox(0.1, 0.058, 0.19, 0.03), shoeGloss, knee, 0, SY + lift, 0.03);
-        mesh(rbox(0.106, 0.012, 0.024, 0.005), shoeGloss, knee, 0, SY + lift + 0.035, 0.035);
-        mesh(sphere(0.008, 8, 6), sole, knee, 0.05, SY + lift + 0.035, 0.035);
-        if (lift) mesh(rbox(0.11, 0.05, 0.2, 0.015), M(shade(cfg.shoeColor, 0.6), 0.5), knee, 0, SY - 0.025, 0.03);
+        const lift = cfg.shoeStyle === 'platforms' ? 0.03 : 0;
+        mesh(rbox(0.08, 0.05, 0.15, 0.025), shoeGloss, knee, 0, SY + lift, 0.022);
+        mesh(rbox(0.085, 0.01, 0.02, 0.004), shoeGloss, knee, 0, SY + lift + 0.03, 0.03);
+        mesh(sphere(0.007, 8, 6), sole, knee, 0.04, SY + lift + 0.03, 0.03);
+        if (lift) mesh(rbox(0.088, 0.045, 0.158, 0.012), M(shade(cfg.shoeColor, 0.6), 0.5), knee, 0, SY - 0.024, 0.022);
         break;
       }
       case 'boots':
-        mesh(cyl(0.066, 0.068, 0.13, 16), shoe, knee, 0, SY + 0.07, 0);
-        mesh(rbox(0.11, 0.075, 0.2, 0.032), shoe, knee, 0, SY + 0.005, 0.03);
-        mesh(rbox(0.116, 0.03, 0.206, 0.012), M('#22232a', 0.6), knee, 0, SY - 0.03, 0.03);
+        mesh(taper(0.052, 0.052, 0.1, 16), shoe, knee, 0, SY + 0.07, 0);
+        mesh(rbox(0.088, 0.06, 0.158, 0.028), shoe, knee, 0, SY, 0.022);
+        mesh(rbox(0.092, 0.024, 0.162, 0.01), M('#22232a', 0.6), knee, 0, SY - 0.026, 0.022);
         break;
       case 'bunny': {
-        const s = mesh(sphere(1, 18, 14), shoe, knee, 0, SY, 0.04);
-        s.scale.set(0.072, 0.055, 0.118);
+        const s = mesh(sphere(1, 18, 14), shoe, knee, 0, SY - 0.002, 0.03);
+        s.scale.set(0.058, 0.046, 0.098);
         for (const e of [-1, 1]) {
-          const ear = mesh(capsule(0.017, 0.05), shoe, knee, e * 0.03, SY + 0.07, 0.0);
-          ear.rotation.set(-0.3, 0, -e * 0.25);
-          mesh(sphere(0.008, 8, 6), dark, knee, e * 0.028, SY + 0.025, 0.145);
+          const ear = mesh(taper(0.014, 0.012, 0.035), shoe, knee, e * 0.024, SY + 0.055, 0.0);
+          ear.rotation.set(-0.35, 0, -e * 0.25);
+          mesh(sphere(0.007, 8, 6), dark, knee, e * 0.022, SY + 0.018, 0.12);
         }
-        mesh(sphere(0.009, 8, 6), M('#ff8fa3', 0.6), knee, 0, SY + 0.008, 0.158);
+        mesh(sphere(0.008, 8, 6), M('#ff8fa3', 0.6), knee, 0, SY + 0.003, 0.13);
         break;
       }
       default: // sneakers
-        mesh(rbox(0.11, 0.07, 0.2, 0.032), shoe, knee, 0, SY + 0.005, 0.03);
-        mesh(rbox(0.116, 0.026, 0.206, 0.012), sole, knee, 0, SY - 0.03, 0.03);
-        mesh(rbox(0.055, 0.012, 0.06, 0.005), sole, knee, 0, SY + 0.042, 0.065);
+        mesh(rbox(0.086, 0.058, 0.155, 0.028), shoe, knee, 0, SY, 0.022);
+        mesh(rbox(0.09, 0.022, 0.16, 0.01), sole, knee, 0, SY - 0.026, 0.022);
+        mesh(rbox(0.045, 0.01, 0.05, 0.004), sole, knee, 0, SY + 0.032, 0.05);
     }
   };
 
+  const tR = 0.066 * limbW, kR = 0.054 * limbW, aR = 0.042 * limbW; // thigh / knee / ankle radii
   for (const side of [-1, 1]) {
     const hip = new THREE.Group();
-    hip.position.set(0.075 * w * side, HIP, 0);
+    hip.position.set(0.058 * w * side, HIP, 0);
     bob.add(hip);
-    mesh(capsule(0.066 * limbW, 0.16), thighMat, hip, 0, -0.14, 0);
-    if (B === 'shorts') mesh(cyl(0.079 * limbW, 0.077 * limbW, 0.13), bottomMat, hip, 0, -0.1, 0);
-    if (B === 'cargo') mesh(rbox(0.03, 0.08, 0.07, 0.01), bottomDark, hip, side * 0.066 * limbW, -0.17, 0);
-    if (B === 'track') mesh(rbox(0.012, 0.28, 0.022, 0.004), white, hip, side * 0.064 * limbW, -0.14, 0);
+    mesh(taper(tR, kR, 0.2), pantsLike ? bottomMat : skin, hip, 0, -0.145, 0).scale.setScalar(pantsLike ? 1.13 : 1);
+    if (B === 'shorts') mesh(tube(tR + 0.014, tR + 0.01, 0.13), bottomMat, hip, 0, -0.07, 0);
+    if (B === 'cargo') mesh(rbox(0.024, 0.07, 0.06, 0.01), bottomDark, hip, side * (tR + 0.012), -0.17, 0);
+    if (B === 'track') mesh(rbox(0.01, 0.24, 0.016, 0.004), white, hip, side * (tR + 0.006), -0.14, 0);
     const knee = new THREE.Group();
     knee.position.set(0, -0.29, 0);
     hip.add(knee);
-    if (B === 'wide') mesh(cyl(0.066 * limbW, 0.092 * limbW, 0.3, 16), bottomMat, knee, 0, -0.13, 0);
-    else mesh(capsule(0.058 * limbW, 0.17), shinMat, knee, 0, -0.14, 0);
-    if (B === 'joggers') mesh(cyl(0.061, 0.061, 0.045, 14), bottomDark, knee, 0, -0.23, 0);
-    if (B === 'cargo') mesh(torus(0.06, 0.014), bottomDark, knee, 0, -0.225, 0).rotation.x = Math.PI / 2;
-    if (B === 'track') mesh(rbox(0.012, 0.24, 0.02, 0.004), white, knee, side * 0.057 * limbW, -0.12, 0);
-    if (!pantsLike && cfg.socks === 'ankle') mesh(cyl(0.061, 0.061, 0.05, 14), sockMat, knee, 0, -0.225, 0);
+    const shinMat = pantsLike ? bottomMat : longSock ? sockMat : skin;
+    mesh(taper(kR, aR, 0.2), shinMat, knee, 0, -0.13, 0).scale.setScalar(pantsLike ? 1.18 : longSock ? 1.1 : 1);
+    if (B === 'wide') mesh(tube(kR + 0.012, aR + 0.048, 0.26), bottomMat, knee, 0, -0.13, 0);
+    if (B === 'joggers') mesh(tube(aR + 0.012, aR + 0.012, 0.035, 16), bottomDark, knee, 0, -0.24, 0);
+    if (B === 'cargo') mesh(torus(aR + 0.012, 0.012), bottomDark, knee, 0, -0.235, 0).rotation.x = Math.PI / 2;
+    if (B === 'track') mesh(rbox(0.01, 0.2, 0.014, 0.004), white, knee, side * (kR + 0.004), -0.12, 0);
+    if (!pantsLike && cfg.socks === 'ankle') mesh(tube(aR + 0.008, aR + 0.008, 0.045, 16), sockMat, knee, 0, -0.235, 0);
     if (!pantsLike && cfg.socks === 'legwarmers') {
-      [-0.07, -0.13, -0.19].forEach((y, i) => mesh(torus(0.062 + i * 0.002, 0.016), sockMat, knee, 0, y, 0).rotation.x = Math.PI / 2);
+      [-0.08, -0.14, -0.2].forEach((y) => mesh(torus(kR + 0.004, 0.014), sockMat, knee, 0, y, 0).rotation.x = Math.PI / 2);
     }
     buildShoe(knee);
     legs[side < 0 ? 'L' : 'R'] = { hip, knee };
   }
 
-  // ----- pelvis / skirts / dresses -----
-  mesh(rbox(0.25 * w, 0.15, 0.17, 0.06), bottomMat, bob, 0, 0.64, 0);
-  if (B === 'skirt') {
-    mesh(cyl(0.135 * w, 0.225 * w, 0.2, 14, true), pleatMat, bob, 0, 0.57, 0).scale.z = 0.85;
-  } else if (B === 'ruffle') {
-    mesh(cyl(0.135 * w, 0.19 * w, 0.11, 24, true), bottomDS, bob, 0, 0.62, 0).scale.z = 0.85;
-    mesh(cyl(0.17 * w, 0.235 * w, 0.11, 24, true), bottomDS, bob, 0, 0.53, 0).scale.z = 0.85;
-    const lace = mesh(torus(0.232 * w, 0.012), M('#fffaf2', 0.9), bob, 0, 0.475, 0);
-    lace.rotation.x = Math.PI / 2; lace.scale.y = 0.85;
-  } else if (B === 'long') {
-    mesh(cyl(0.135 * w, 0.25 * w, 0.46, 24, true), bottomDS, bob, 0, 0.43, 0).scale.z = 0.85;
-  } else if (B === 'sundress') {
-    mesh(cyl(0.14 * w, 0.26 * w, 0.27, 28, true), bottomDS, bob, 0, 0.53, 0).scale.z = 0.85;
-  } else if (B === 'pinafore') {
-    mesh(cyl(0.14 * w, 0.24 * w, 0.24, 16, true), pleatMat, bob, 0, 0.545, 0).scale.z = 0.85;
-  }
+  // ----- bottoms around the hips -----
+  const wr = (rAt(0.72) + 0.012) * w; // waist radius for skirts
+  if (pantsLike || B === 'shorts') shell(0.5, 0.77, 0.008, bottomMat, bob);
+  else shell(0.66, 0.77, 0.008, bottomMat, bob);
+  if (B === 'skirt') mesh(tube(wr, wr * 1.7, 0.2, 14), pleatMat, bob, 0, 0.62, 0).scale.z = 0.8;
+  else if (B === 'ruffle') {
+    mesh(tube(wr, wr * 1.42, 0.11), bottomMat, bob, 0, 0.665, 0).scale.z = 0.82;
+    mesh(tube(wr * 1.3, wr * 1.8, 0.11), bottomMat, bob, 0, 0.565, 0).scale.z = 0.82;
+    const lace = mesh(torus(+(wr * 1.78).toFixed(3), 0.011), M('#fffaf2', 0.9), bob, 0, 0.51, 0);
+    lace.rotation.x = Math.PI / 2; lace.scale.y = 0.82;
+  } else if (B === 'long') mesh(tube(wr, wr * 1.95, 0.48), bottomMat, bob, 0, 0.48, 0).scale.z = 0.82;
+  else if (B === 'sundress') mesh(tube(wr, wr * 2.0, 0.28), bottomMat, bob, 0, 0.58, 0).scale.z = 0.82;
+  else if (B === 'pinafore') mesh(tube(wr, wr * 1.8, 0.25, 16), pleatMat, bob, 0, 0.6, 0).scale.z = 0.82;
 
-  // ----- torso + tops -----
-  const T = cfg.top;
-  const torso = new THREE.Group();
-  torso.position.set(0, 0.62, 0);
-  bob.add(torso);
-  const tW = 0.29 * w, tD = 0.19 * Math.min(w, 1.12);
-  const oversize = ['sweater', 'hoodie', 'zipup', 'varsity'].includes(T) ? 1.06 : 1;
-  const front = (tD / 2) * oversize;
+  // ----- tops -----
+  const oversize = ['sweater', 'hoodie', 'zipup', 'varsity'].includes(T) ? 1.08 : 1;
+  const inf = oversize > 1 ? 0.022 : 0.013; // how far the top sits off the body
   const bareShoulders = T === 'cami' || T === 'offshoulder';
-  if (bareShoulders) {
-    mesh(rbox(tW, 0.3, tD, 0.075), topMat, torso, 0, 0.15, 0);
-    mesh(rbox(tW * 0.95, 0.12, tD * 0.92, 0.05), skin, torso, 0, 0.31, 0);
-    if (T === 'cami') {
-      mesh(rbox(tW * 1.01, 0.018, tD * 1.03, 0.008), M('#fffaf2', 0.9), torso, 0, 0.295, 0);
-      for (const s of [-1, 1]) {
-        mesh(rbox(0.012, 0.012, tD + 0.012, 0.004), topMat, torso, s * 0.075 * w, 0.372, 0);
-        mesh(rbox(0.012, 0.075, 0.008, 0.004), topMat, torso, s * 0.075 * w, 0.335, tD / 2 - 0.004);
-      }
-      bow(torso, 0, 0.28, front + 0.012, 0.35, acc);
-    } else {
-      const band = mesh(cyl(tW * 0.6, tW * 0.63, 0.055, 24, true), M(cfg.topColor, 0.8, { side: THREE.DoubleSide }), torso, 0, 0.29, 0);
-      band.scale.z = tD / tW;
-      bow(torso, 0, 0.27, front + 0.018, 0.3, acc);
-    }
-  } else {
-    mesh(rbox(tW, 0.37, tD, 0.075), T === 'raglan' || T === 'varsity' ? (T === 'raglan' ? cream : topMat) : topMat, torso, 0, 0.185, 0).scale.set(oversize, 1, oversize);
-  }
+  const bodyTopMat = T === 'raglan' ? cream : topMat;
+  if (bareShoulders) shell(0.69, T === 'cami' ? 0.93 : 0.915, inf, topMat);
+  else shell(0.69, 0.997, inf, bodyTopMat);
   const hood = () => {
-    const h = mesh(torus(0.085 * w, 0.042), topMat, torso, 0, 0.37, -0.035);
+    const h = mesh(torus(+(0.075 * w).toFixed(3), 0.038), topMat, torso, 0, 0.37, -0.035);
     h.rotation.x = Math.PI / 2 - 0.3;
     h.scale.set(1, 1, 0.8);
   };
-  const hem = (mat = rib) => mesh(rbox(tW * oversize * 1.02, 0.045, tD * oversize * 1.04, 0.02), mat, torso, 0, 0.022, 0);
-  const neckRing = (mat) => { const n = mesh(torus(0.055, 0.013), mat, torso, 0, 0.368, 0.012); n.rotation.x = Math.PI / 2; };
+  const hem = (mat = rib) => ring(0.695, inf + 0.002, 0.014, mat);
+  const neck = (mat) => ring(0.99, 0.0, 0.012, mat).position.y += 0.002;
   switch (T) {
     case 'hoodie':
       hood(); hem();
-      mesh(rbox(tW * 0.62, 0.1, 0.03, 0.015), rib, torso, 0, 0.09, front + 0.004);
-      for (const s of [-1, 1]) mesh(cyl(0.006, 0.006, 0.11, 6), white, torso, 0.03 * s, 0.28, front + 0.008);
+      strip(0.71, 0.79, inf + 0.003, 0, 0.42, rib);
+      for (const s of [-1, 1]) mesh(taper(0.005, 0.005, 0.09, 6), white, torso, 0.028 * s, 0.29, frontAt(0.92, inf) + 0.006);
       break;
     case 'zipup':
       hood(); hem();
-      mesh(rbox(0.05, 0.33, 0.01, 0.004), cream, torso, 0, 0.19, front - 0.002);
-      mesh(rbox(0.008, 0.33, 0.014, 0.003), M('#d9d9de', 0.3, { metalness: 0.5 }), torso, 0.026, 0.19, front + 0.002);
-      for (const s of [-1, 1]) mesh(rbox(0.05, 0.07, 0.02, 0.01), rib, torso, s * 0.075 * w, 0.08, front + 0.004);
+      strip(0.7, 0.99, inf + 0.002, 0, 0.12, cream);
+      strip(0.7, 0.99, inf + 0.004, 0.03, 0.025, M('#d9d9de', 0.3, { metalness: 0.5 }));
+      for (const s of [-1, 1]) strip(0.71, 0.78, inf + 0.003, s * 0.6, 0.22, rib);
       break;
     case 'polo':
       for (const s of [-1, 1]) {
-        const c = mesh(rbox(0.075, 0.025, 0.055, 0.01), topMat, torso, 0.04 * s, 0.365, front - 0.015);
+        const c = mesh(rbox(0.06, 0.02, 0.045, 0.008), topMat, torso, 0.035 * s, 0.37, frontAt(0.98, inf) - 0.02);
         c.rotation.set(0.5, 0, -0.45 * s);
       }
-      mesh(rbox(0.035, 0.1, 0.008, 0.003), rib, torso, 0, 0.3, front + 0.002);
-      for (const y of [0.32, 0.28]) mesh(sphere(0.007, 8, 6), white, torso, 0, y, front + 0.008);
+      strip(0.87, 0.985, inf + 0.002, 0, 0.06, rib);
+      for (const y of [0.95, 0.91]) dot(y, inf + 0.004, white, 0.006);
       break;
     case 'blazer':
-      mesh(rbox(0.09, 0.2, 0.015, 0.006), white, torso, 0, 0.27, front - 0.001);
-      mesh(rbox(0.026, 0.14, 0.01, 0.004), acc, torso, 0, 0.26, front + 0.009);
-      for (const s of [-1, 1]) {
-        const l = mesh(rbox(0.05, 0.19, 0.016, 0.006), rib, torso, 0.055 * s, 0.27, front + 0.006);
-        l.rotation.z = 0.3 * s;
-      }
-      for (const y of [0.12, 0.06]) mesh(sphere(0.009, 8, 6), dark, torso, 0, y, front + 0.008);
+      strip(0.83, 0.99, inf + 0.001, 0, 0.3, white);
+      strip(0.8, 0.975, inf + 0.004, 0, 0.055, acc);
+      for (const s of [-1, 1]) strip(0.8, 0.98, inf + 0.003, s * 0.27, 0.1, rib);
+      for (const y of [0.78, 0.73]) dot(y, inf + 0.002, dark, 0.008);
       break;
     case 'cardigan':
       hem();
-      mesh(rbox(0.075, 0.13, 0.01, 0.005), cream, torso, 0, 0.3, front - 0.001);
-      mesh(rbox(0.012, 0.3, 0.01, 0.004), rib, torso, -0.02, 0.18, front + 0.002);
-      for (const y of [0.25, 0.19, 0.13, 0.07]) mesh(sphere(0.009, 8, 6), cream, torso, 0, y, front + 0.008);
+      strip(0.86, 0.99, inf + 0.001, 0, 0.22, cream);
+      strip(0.7, 0.86, inf + 0.002, 0.03, 0.02, rib);
+      for (const y of [0.84, 0.79, 0.74]) dot(y, inf + 0.003, cream, 0.008);
       break;
     case 'sweater':
-      hem(); neckRing(rib);
+      hem(); neck(rib);
       break;
     case 'raglan':
-      neckRing(topMat);
+      neck(topMat);
       break;
     case 'varsity': {
       const stripeMat = M(shade(cfg.topColor, 0.6), 0.85);
       hem(stripeMat);
-      mesh(rbox(tW * 1.08, 0.012, tD * 1.1, 0.004), cream, torso, 0, 0.03, 0);
-      const collar = mesh(torus(0.065, 0.018), stripeMat, torso, 0, 0.365, 0.005);
-      collar.rotation.x = Math.PI / 2;
-      mesh(rbox(0.06, 0.33, 0.01, 0.004), cream, torso, 0, 0.19, front - 0.003);
-      for (const y of [0.29, 0.22, 0.15, 0.08]) mesh(sphere(0.009, 8, 6), cream, torso, 0.035, y, front + 0.006);
+      ring(0.71, inf + 0.004, 0.006, cream);
+      neck(stripeMat);
+      strip(0.7, 0.99, inf + 0.002, 0, 0.1, cream);
+      for (const y of [0.92, 0.86, 0.8, 0.74]) dot(y, inf + 0.004, cream, 0.008, 0.03);
       break;
     }
-    case 'track': {
-      const collar = mesh(cyl(0.058, 0.062, 0.045, 18, true), M(cfg.topColor, 0.8, { side: THREE.DoubleSide }), torso, 0, 0.385, 0.005);
-      collar.scale.z = 0.9;
-      mesh(rbox(0.008, 0.36, 0.014, 0.003), white, torso, 0, 0.18, front + 0.002);
+    case 'track':
+      neck(topMat);
+      strip(0.7, 0.99, inf + 0.003, 0, 0.022, white);
       hem();
       break;
-    }
+    case 'cami':
+      ring(0.93, inf, 0.008, M('#fffaf2', 0.9));
+      for (const s of [-1, 1]) {
+        strip(0.92, 0.995, inf - 0.002, s * 0.48, 0.05, topMat);
+        strip(0.92, 0.995, inf - 0.002, Math.PI + s * 0.48, 0.05, topMat);
+      }
+      bow(torso, 0, 0.3, frontAt(0.92, inf) + 0.01, 0.32, acc);
+      break;
+    case 'offshoulder':
+      ring(0.915, inf + 0.01, 0.022, topMat);
+      bow(torso, 0, 0.29, frontAt(0.91, inf) + 0.03, 0.3, acc);
+      break;
     default: // tshirt, striped
-      neckRing(M(shade(cfg.skin, 0.9), 0.6));
+      neck(M(shade(cfg.skin, 0.9), 0.6));
   }
 
-  // dress bodices / overall bibs go over the top
-  if (B === 'sundress' || B === 'pinafore' || B === 'overalls') {
-    if (B === 'sundress') mesh(rbox(tW + 0.014, 0.22, tD + 0.014, 0.07), bottomMat, torso, 0, 0.11, 0).scale.set(oversize, 1, oversize);
-    else {
-      mesh(rbox(tW + 0.014, 0.06, tD + 0.014, 0.025), bottomMat, torso, 0, 0.03, 0).scale.set(oversize, 1, oversize);
-      mesh(rbox(0.16 * w, 0.17, 0.02, 0.01), bottomMat, torso, 0, 0.16, front + 0.006);
-      if (B === 'overalls') mesh(rbox(0.07, 0.05, 0.01, 0.005), bottomDark, torso, 0, 0.17, front + 0.017);
-    }
+  // dresses / overalls go over the top
+  if (B === 'sundress') {
+    shell(0.7, 0.9, inf + 0.012, bottomMat);
     for (const s of [-1, 1]) {
-      const sx = s * 0.065 * w;
-      mesh(rbox(0.024, 0.15, 0.01, 0.004), bottomMat, torso, sx, 0.3, front + 0.008);
-      mesh(rbox(0.024, 0.014, tD * oversize + 0.03, 0.005), bottomMat, torso, sx, 0.375, 0);
-      mesh(rbox(0.024, 0.2, 0.01, 0.004), bottomMat, torso, sx, 0.27, -front - 0.008);
-      if (B !== 'sundress') mesh(sphere(0.011, 8, 6), M('#f0c75e', 0.3, { metalness: 0.4 }), torso, sx, 0.235, front + 0.014);
+      strip(0.88, 0.997, inf + 0.01, s * 0.5, 0.06, bottomMat);
+      strip(0.88, 0.997, inf + 0.01, Math.PI + s * 0.5, 0.06, bottomMat);
     }
-    if (B === 'sundress') bow(torso, 0, 0.21, front + 0.014, 0.3, M('#fffaf2', 0.8));
+    bow(torso, 0, 0.27, frontAt(0.89, inf + 0.012) + 0.01, 0.3, M('#fffaf2', 0.8));
+  } else if (B === 'pinafore' || B === 'overalls') {
+    shell(0.69, 0.77, inf + 0.012, bottomMat);
+    strip(0.76, 0.9, inf + 0.014, 0, 0.5, bottomMat);
+    if (B === 'overalls') strip(0.8, 0.85, inf + 0.018, 0, 0.18, bottomDark);
+    for (const s of [-1, 1]) {
+      strip(0.88, 0.997, inf + 0.012, s * 0.42, 0.07, bottomMat);
+      strip(0.75, 0.997, inf + 0.012, Math.PI + s * 0.42, 0.07, bottomMat);
+      mesh(sphere(0.01, 8, 6), gold, torso, Math.sin(s * 0.42) * (rAt(0.88) + inf + 0.02) * w, 0.88 - TY, frontAt(0.88, inf + 0.02) * Math.cos(0.42));
+    }
   }
 
-  // chest print
-  if (cfg.print !== 'none' && !(B === 'overalls' || B === 'pinafore')) {
+  // chest print (a decal on the chest)
+  const tW = rAt(0.88) * 2 * w, tD = frontAt(0.88) * 2;
+  const front = frontAt(0.86, inf);
+  if (cfg.print !== 'none' && B !== 'overalls' && B !== 'pinafore') {
     const small = ['zipup', 'blazer', 'cardigan', 'varsity', 'track', 'polo'].includes(T);
-    const size = small ? 0.06 : 0.11;
-    const py = bareShoulders ? 0.17 : B === 'sundress' ? 0.27 : small ? 0.29 : 0.22;
+    const size = small ? 0.055 : 0.1;
+    const py = bareShoulders ? 0.8 : B === 'sundress' ? 0.84 : small ? 0.9 : 0.84;
+    const ang = small ? -0.42 : 0;
+    const pinf = inf + (B === 'sundress' ? 0.014 : 0) + 0.004;
     const pmat = new THREE.MeshStandardMaterial({ map: printTexture(cfg.print, cfg.accColor), transparent: true, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2 });
     disposables.push(pmat);
     const plane = new THREE.Mesh(geo(`print${size}`, () => new THREE.PlaneGeometry(size, size)), pmat);
-    plane.position.set(small ? -0.065 * w : 0, py, (B === 'sundress' ? front + 0.008 : front) + 0.0035);
+    plane.position.set(Math.sin(ang) * (rAt(py) + pinf) * w, py - TY, Math.cos(ang) * frontAt(py, pinf));
+    plane.rotation.y = ang * 0.8;
     torso.add(plane);
   }
 
-  // ----- arms (small, slim) -----
+  // ----- arms: thin, tapered, seamless -----
   const shortSleeve = ['tshirt', 'polo'].includes(T);
   const sleeveMat = T === 'varsity' ? cream : topMat;
   const cuffs = ['hoodie', 'zipup', 'sweater', 'cardigan', 'varsity', 'track'].includes(T);
+  const sR = 0.042 * limbW, eR = 0.036 * limbW, wR = 0.03 * limbW; // shoulder / elbow / wrist radii
   const arms = {};
   for (const side of [-1, 1]) {
     const shoulder = new THREE.Group();
-    shoulder.position.set((tW / 2 + 0.035) * side, 0.95, 0);
+    shoulder.position.set((rAt(0.935) * w + 0.028) * side, 0.935, 0);
     shoulder.rotation.z = 0.1 * side;
     bob.add(shoulder);
-    mesh(sphere(0.056 * limbW), bareShoulders ? skin : sleeveMat, shoulder);
-    mesh(capsule(0.05 * limbW, 0.11), T === 'cami' || shortSleeve ? skin : sleeveMat, shoulder, 0, -0.1, 0);
-    if (shortSleeve) mesh(cyl(0.058 * limbW, 0.063 * limbW, 0.08, 16), topMat, shoulder, 0, -0.05, 0);
-    if (T === 'track') mesh(rbox(0.012, 0.15, 0.012, 0.004), white, shoulder, side * 0.05 * limbW, -0.1, 0);
+    const sleeved = !bareShoulders || T === 'offshoulder';
+    mesh(sphere(sR + 0.004, 16, 12), bareShoulders ? skin : sleeveMat, shoulder).scale.setScalar(bareShoulders ? 1 : 1.18);
+    mesh(taper(sR, eR, 0.1), skin, shoulder, 0, -0.09, 0);
+    if (sleeved && !shortSleeve) mesh(taper(sR, eR, 0.1), sleeveMat, shoulder, 0, -0.09, 0).scale.setScalar(1.25);
+    if (shortSleeve) mesh(tube(sR + 0.012, sR + 0.016, 0.075, 18), topMat, shoulder, 0, -0.035, 0);
+    if (T === 'track') mesh(rbox(0.01, 0.13, 0.01, 0.004), white, shoulder, side * (sR + 0.008), -0.09, 0);
     const elbow = new THREE.Group();
-    elbow.position.set(0, -0.2, 0);
+    elbow.position.set(0, -0.17, 0);
     shoulder.add(elbow);
-    const foreBare = T === 'cami' || shortSleeve;
-    mesh(capsule(0.044 * limbW, 0.1), foreBare ? skin : sleeveMat, elbow, 0, -0.07, 0);
-    if (cuffs) mesh(cyl(0.05 * limbW, 0.05 * limbW, 0.035, 14), T === 'varsity' ? M(shade(cfg.topColor, 0.6), 0.85) : rib, elbow, 0, -0.13, 0);
-    if (T === 'track') mesh(rbox(0.012, 0.11, 0.012, 0.004), white, elbow, side * 0.045 * limbW, -0.07, 0);
-    mesh(sphere(0.048, 14, 10), skin, elbow, 0, -0.18, 0.004);
+    mesh(taper(eR, wR, 0.1), skin, elbow, 0, -0.075, 0);
+    if (sleeved && !shortSleeve) mesh(taper(eR, wR, 0.1), sleeveMat, elbow, 0, -0.072, 0).scale.set(1.3, 1.05, 1.3);
+    if (cuffs) mesh(tube(wR + 0.013, wR + 0.013, 0.028, 16), T === 'varsity' ? M(shade(cfg.topColor, 0.6), 0.85, { side: THREE.DoubleSide }) : rib, elbow, 0, -0.14, 0);
+    if (T === 'track') mesh(rbox(0.01, 0.1, 0.01, 0.004), white, elbow, side * (eR + 0.008), -0.075, 0);
+    // small mitten hand with a thumb
+    const hand = new THREE.Group();
+    hand.position.set(0, -0.165, 0);
+    elbow.add(hand);
+    mesh(sphere(1, 14, 10), skin, hand, 0, -0.03, 0).scale.set(0.03, 0.04, 0.02);
+    const thumb = mesh(taper(0.009, 0.008, 0.016, 8), skin, hand, -side * 0.012, -0.018, 0.016);
+    thumb.rotation.set(0.6, 0, side * 0.4);
     arms[side < 0 ? 'L' : 'R'] = { shoulder, elbow };
   }
 
   // ----- neck + head -----
-  mesh(cyl(0.042, 0.048, 0.1), skin, bob, 0, 1.01, 0);
+  mesh(taper(0.034, 0.04, 0.08, 16), skin, bob, 0, 1.02, 0);
   const head = new THREE.Group();
   head.position.set(0, HEAD_Y, 0);
   bob.add(head);
@@ -827,9 +917,13 @@ export function buildAvatar(rawCfg) {
   else mesh(sphere(R, 40, 28), skin, headInner);
 
   // ears
+  const earInner = M(shade(cfg.skin, 0.86), 0.65);
   for (const s of [-1, 1]) {
-    const ear = mesh(sphere(0.06, 12, 10), skin, headInner, (square ? 0.29 : R * 0.97) * s, -0.03, -0.01);
-    ear.scale.set(0.45, 1, 0.75);
+    const ex = (square ? 0.285 : R * 0.95) * s;
+    const ear = mesh(sphere(0.078, 16, 12), skin, headInner, ex, -0.04, -0.01);
+    ear.scale.set(0.42, 1, 0.72);
+    const inner = mesh(sphere(0.05, 12, 10), earInner, headInner, ex + s * 0.022, -0.04, 0.0);
+    inner.scale.set(0.25, 0.8, 0.55);
   }
 
   // painted face
@@ -995,7 +1089,7 @@ export function buildAvatar(rawCfg) {
       backLocks(0.52, 11, 0.25, { straight: 0.6, out: 0.08 });
       const ends = [];
       for (let i = 0; i < 9; i++) { const a = Math.PI + (i / 8 - 0.5) * 3.6; ends.push([Math.sin(a) * hr * 1.2, -0.38, Math.cos(a) * hr * 1.15]); }
-      curls(ends, 0.05);
+      ends.forEach(([x, y, z]) => mesh(sphere(0.05, 12, 10), hairM, hairGroup, x, y, z).scale.set(1, 1.25, 1));
       ahoge();
       break;
     }
@@ -1250,4 +1344,47 @@ export function animateAvatar(av, dt, state) {
   av.head.rotation.y = Math.sin(a.t * 0.5) * 0.14 * (1 - walk);
   av.head.rotation.z = Math.sin(a.t * 0.8) * 0.04 * (1 - walk) + Math.sin(a.phase) * 0.04 * walk;
   av.head.rotation.x = Math.sin(a.t * 0.7) * 0.03 + (state.typing ? 0.15 : 0) * sit;
+}
+
+// ---------- small images for the editor's option tiles ----------
+function tileCanvas(w = 160, h = 160) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  return c;
+}
+
+/** Crop of the painted face (part: 'eyes' | 'mouth') on a skin-colored tile. */
+export function faceThumb(rawCfg, part) {
+  const cfg = normalizeAvatar(rawCfg);
+  const tex = drawFace(cfg);
+  const src = tex.image;
+  const eyeY = (FACE_THETA0 + 0.12) * PX;
+  const c = tileCanvas();
+  const g = c.getContext('2d');
+  g.fillStyle = cfg.skin;
+  g.fillRect(0, 0, 160, 160);
+  if (part === 'eyes') g.drawImage(src, FACE_W / 2 - 150, eyeY - 135, 300, 300, 0, 0, 160, 160);
+  else g.drawImage(src, FACE_W / 2 - 60, eyeY + 0.36 * PX - 60, 120, 120, 0, 0, 160, 160);
+  tex.dispose();
+  return c.toDataURL('image/png');
+}
+
+export function patternSwatch(color, pat) {
+  const c = tileCanvas();
+  const g = c.getContext('2d');
+  if (!pat || pat === 'plain') { g.fillStyle = color; g.fillRect(0, 0, 160, 160); }
+  else { g.fillStyle = g.createPattern(patternTexture(color, pat).image, 'repeat'); g.fillRect(0, 0, 160, 160); }
+  return c.toDataURL('image/png');
+}
+
+export function printSwatch(kind, accColor, bg) {
+  const c = tileCanvas();
+  const g = c.getContext('2d');
+  g.fillStyle = bg;
+  g.fillRect(0, 0, 160, 160);
+  if (kind === 'none') {
+    g.strokeStyle = 'rgba(0,0,0,0.25)'; g.lineWidth = 6;
+    g.beginPath(); g.arc(80, 80, 34, 0, Math.PI * 2); g.moveTo(56, 104); g.lineTo(104, 56); g.stroke();
+  } else g.drawImage(printTexture(kind, accColor).image, 24, 24, 112, 112);
+  return c.toDataURL('image/png');
 }
