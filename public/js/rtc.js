@@ -39,6 +39,9 @@ export class RTCMesh {
       screenSenders: [],
       streams: new Map(),
       restartTimer: null,
+      queue: Promise.resolve(), // signaling messages are applied strictly in order
+      pendingCandidates: [],
+      watchdog: null,
     };
     this.peers.set(id, peer);
 
@@ -61,10 +64,25 @@ export class RTCMesh {
       ev.track.addEventListener('unmute', () => this.onStream(id, stream));
       stream.addEventListener?.('removetrack', () => this.onStream(id, stream));
     };
+    // If the call hasn't come up after a while (lost candidates, flaky network), restart ICE.
+    const armWatchdog = (ms = 10000) => {
+      clearTimeout(peer.watchdog);
+      peer.watchdog = setTimeout(() => {
+        if (!this.peers.has(id) || pc.connectionState === 'connected' || pc.connectionState === 'closed') return;
+        if (!pc.remoteDescription) return armWatchdog(ms);
+        console.warn('[rtc] connection stuck in', pc.connectionState, '- restarting ICE');
+        try { pc.restartIce(); } catch { /* ignore */ }
+        armWatchdog(Math.min(ms * 1.5, 30000));
+      }, ms);
+    };
+    peer.armWatchdog = armWatchdog;
+    armWatchdog();
     pc.onconnectionstatechange = () => {
       const st = pc.connectionState;
       this.onState(id, st);
       clearTimeout(peer.restartTimer);
+      if (st === 'connected') clearTimeout(peer.watchdog);
+      else if (st !== 'closed') armWatchdog();
       if (st === 'failed') {
         try { pc.restartIce(); } catch { /* old browsers */ }
       } else if (st === 'disconnected') {
@@ -90,6 +108,7 @@ export class RTCMesh {
     const peer = this.peers.get(id);
     if (!peer) return;
     clearTimeout(peer.restartTimer);
+    clearTimeout(peer.watchdog);
     try { peer.pc.close(); } catch { /* ignore */ }
     this.peers.delete(id);
   }
@@ -98,9 +117,16 @@ export class RTCMesh {
     for (const id of [...this.peers.keys()]) this.removePeer(id);
   }
 
-  async handleSignal(from, data) {
+  handleSignal(from, data) {
     const peer = this.peers.get(from) || this.addPeer(from);
+    // Chain onto the peer's queue so a candidate is never applied before the description it belongs to.
+    peer.queue = peer.queue.then(() => this._applySignal(peer, from, data)).catch((e) => console.warn('[rtc] signal error', e));
+    return peer.queue;
+  }
+
+  async _applySignal(peer, from, data) {
     const pc = peer.pc;
+    if (pc.signalingState === 'closed') return;
     try {
       if (data.description) {
         const description = data.description;
@@ -111,11 +137,14 @@ export class RTCMesh {
         peer.settingAnswer = description.type === 'answer';
         await pc.setRemoteDescription(description);
         peer.settingAnswer = false;
+        // candidates that arrived before any remote description
+        for (const c of peer.pendingCandidates.splice(0)) { try { await pc.addIceCandidate(c); } catch { /* stale */ } }
         if (description.type === 'offer') {
           await pc.setLocalDescription();
           this.signal(from, { description: pc.localDescription });
         }
       } else if (data.candidate) {
+        if (!pc.remoteDescription) { if (!peer.ignoreOffer) peer.pendingCandidates.push(data.candidate); return; }
         try {
           await pc.addIceCandidate(data.candidate);
         } catch (e) {
