@@ -406,8 +406,15 @@ async function joinFromLobby(mode) {
   state.phase = 'joining';
   $('createRoomBtn').disabled = $('joinRoomBtn').disabled = true;
   if (!socket.connected) toast('Connecting to the server…');
+  // wait until the server has told us its version (sent right after connecting)
+  for (let i = 0; i < 100 && !pageBuild; i++) await new Promise((r) => setTimeout(r, 100));
   const res = await emitAck(mode === 'create' ? 'room:create' : 'room:join', joinPayload({ code }));
   $('createRoomBtn').disabled = $('joinRoomBtn').disabled = false;
+  if (!res?.ok && /updated/i.test(res?.error || '')) {
+    try { sessionStorage.setItem('autoRejoin', JSON.stringify({ code: code || '', name: $('nameInput').value, role: $('roleInput').value })); } catch { /* ignore */ }
+    location.reload();
+    return;
+  }
   if (!res?.ok) { state.phase = 'lobby'; lobbyError(res?.error || 'Could not join.'); return; }
   enterRoom(res);
 }
@@ -1566,6 +1573,15 @@ $('micBtn').onclick = toggleMic;
 $('camBtn').onclick = toggleCam;
 $('avatarBtn').onclick = openAvatarEditor;
 $('leaveBtn').onclick = () => leaveRoom();
+/** reload the page (newest version) and come straight back into the same room */
+function reconnectNow() {
+  try {
+    if (state.phase === 'room' && state.code) sessionStorage.setItem('autoRejoin', JSON.stringify({ code: state.code, name: $('nameInput').value || local?.name, role: $('roleInput').value }));
+  } catch { /* private mode */ }
+  toast('⟳ Reconnecting…', 'ok', 3000);
+  setTimeout(() => location.reload(), 300);
+}
+$('reconnectBtn').onclick = reconnectNow;
 $('copyLink').onclick = async () => {
   const url = `${location.origin}/?room=${state.code}`;
   try { await navigator.clipboard.writeText(url); toast('Invite link copied 🔗', 'ok'); }

@@ -200,6 +200,8 @@ io.on('connection', (socket) => {
   const inRoom = () => room && me && room.players.has(socket.id);
 
   function join(code, payload, ack) {
+    // everyone must run the current version, or they'd walk through walls that moved
+    if (payload?.build !== BUILD) return ack?.({ ok: false, error: 'Study Hub was updated 🎉 Refresh the page (press F5) to get the new version, then join again.' });
     const r = rooms.get(code);
     if (!r) return ack?.({ ok: false, error: 'Room not found. Check the code, or create a new room.' });
     if (r.players.size >= MAX_PLAYERS) return ack?.({ ok: false, error: `Room is full (max ${MAX_PLAYERS}).` });
