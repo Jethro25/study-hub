@@ -952,7 +952,15 @@ export function buildAvatar(rawCfg) {
     if (!pantsLike && cfg.socks === 'legwarmers') {
       [-0.08, -0.14, -0.2].forEach((y) => mesh(torus(kR + 0.006, 0.015), sockMat, knee, 0, y, 0).rotation.x = Math.PI / 2);
     }
-    buildShoe(knee);
+    // sheet 01: smaller feet (scaled about the sole so the avatar still stands on the floor)
+    const foot = new THREE.Group();
+    foot.position.set(0, SY - 0.035, 0.02);
+    foot.scale.setScalar(0.88);
+    knee.add(foot);
+    const footIn = new THREE.Group();
+    footIn.position.set(0, -(SY - 0.035), -0.02);
+    foot.add(footIn);
+    buildShoe(footIn);
     legs[side < 0 ? 'L' : 'R'] = { hip, knee };
   }
 
@@ -1123,6 +1131,7 @@ export function buildAvatar(rawCfg) {
     // small hand: palm, thumb and three splayed fingers
     const hand = new THREE.Group();
     hand.position.set(0, -0.21, 0);
+    hand.scale.setScalar(0.85); // sheet 01: smaller hands
     elbow.add(hand);
     mesh(sphere(1, 14, 10), skin, hand, 0, -0.022, 0).scale.set(0.024 * aw, 0.03, 0.014);
     const thumb = mesh(taper(0.0075, 0.0065, 0.018, 8), skin, hand, -side * 0.02, -0.018, 0.006);
@@ -1137,9 +1146,13 @@ export function buildAvatar(rawCfg) {
 
   // ----- neck + head -----
   mesh(taper(male ? 0.034 : 0.028, male ? 0.04 : 0.034, 0.08, 16), skin, bob, 0, 1.065, 0);
+  // sheet 01: the head nods / tilts from a pivot at the top of the neck (1.09 m), not from its centre
+  const headPivot = new THREE.Group();
+  headPivot.position.set(0, 1.09, 0);
+  bob.add(headPivot);
   const head = new THREE.Group();
-  head.position.set(0, HEAD_Y, 0);
-  bob.add(head);
+  head.position.set(0, HEAD_Y - 1.09, 0);
+  headPivot.add(head);
   const shapeScale = (HEAD_SHAPES[cfg.faceShape] || HEAD_SHAPES.round).scale;
   const headInner = new THREE.Group();
   headInner.scale.set(...shapeScale);
@@ -1616,7 +1629,7 @@ export function buildAvatar(rawCfg) {
   const headTop = (HEAD_Y + R * shapeScale[1] + tallHair + (hatCovers ? 0.05 : cfg.hat === 'bunny' ? 0.25 : cfg.hat === 'cat' ? 0.08 : 0)) * cfg.height;
 
   return {
-    cfg, root, body, bob, torso, head, legs, arms,
+    cfg, root, body, bob, torso, head: headPivot, legs, arms,
     hipHeight, headTop,
     dyn: { hair: hairDyn, skirts },
     anim: { walk: 0, phase: 0, sit: 0, typing: 0, t: Math.random() * 10 },
@@ -1669,8 +1682,8 @@ export function animateAvatar(av, dt, state) {
     const walkArm = -sw * 0.6 * s * walk;
     const sitArm = state.typing ? -0.55 + typeJit : -0.2;
     arm.shoulder.rotation.x = lerp(walkArm, sitArm, sit);
-    arm.elbow.rotation.x = lerp(-0.15 - walk * 0.3, state.typing ? -1.1 : -0.9, sit);
-    arm.shoulder.rotation.z = (0.56 + breathe * 2) * -s * (1 - sit) + 0.1 * -s * sit;
+    arm.elbow.rotation.x = lerp(-0.17 - walk * 0.3, state.typing ? -1.1 : -0.9, sit);
+    arm.shoulder.rotation.z = (0.63 + breathe * 2) * -s * (1 - sit) + 0.1 * -s * sit; // A-pose 36°
   }
   av.bob.position.y = Math.abs(Math.sin(a.phase)) * 0.04 * walk * (1 - sit) + breathe * (1 - walk);
   av.torso.rotation.x = 0.05 * walk * (1 - sit) - 0.03 * sit;
