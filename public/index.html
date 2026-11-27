@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Study Hub · 3D Virtual Office</title>
+  <meta name="description" content="A cozy 3D office in your browser to study, hang out and present together." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='16' fill='%232f4744'/><circle cx='32' cy='32' r='14' fill='%23f6c177'/></svg>" />
+  <link rel="stylesheet" href="/css/style.css" />
+  <script type="importmap">
+    { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/addons/" } }
+  </script>
+</head>
+<body>
+  <canvas id="scene" aria-label="3D office"></canvas>
+  <div id="media" aria-hidden="true"></div>
+
+  <!-- ============ LOBBY ============ -->
+  <section id="lobby" class="screen">
+    <div class="lobby-card">
+      <header class="brand">
+        <div class="logo">S</div>
+        <div>
+          <h1>Study Hub</h1>
+          <p>A cozy 3D office to study, hang out and present together.</p>
+        </div>
+      </header>
+
+      <div class="lobby-grid">
+        <div class="lobby-col">
+          <label class="lbl" for="nameInput">Display name</label>
+          <input id="nameInput" class="input" maxlength="24" placeholder="e.g. Sam Rivera" autocomplete="nickname" />
+
+          <div class="avatar-row">
+            <div class="avatar-thumb"><img id="avatarThumb" alt="Your avatar" /></div>
+            <div class="avatar-actions">
+              <span class="lbl">Your avatar</span>
+              <button id="editAvatarLobby" class="btn">✏️ Edit avatar</button>
+              <button id="randomAvatarLobby" class="btn ghost">🎲 Randomize</button>
+            </div>
+          </div>
+
+          <button id="createRoomBtn" class="btn primary big">Create a new room</button>
+          <div class="or"><span>or join with a code</span></div>
+          <div class="join-row">
+            <input id="codeInput" class="input code" maxlength="5" placeholder="ABCDE" autocomplete="off" spellcheck="false" />
+            <button id="joinRoomBtn" class="btn primary">Join</button>
+          </div>
+          <p id="lobbyError" class="error" role="alert"></p>
+        </div>
+
+        <div class="lobby-col">
+          <span class="lbl">Camera &amp; mic check</span>
+          <div class="preview-box">
+            <video id="previewVideo" autoplay muted playsinline></video>
+            <div id="previewOff" class="preview-off"><span>Camera is off</span></div>
+            <div class="preview-controls">
+              <button id="pvMic" class="round-btn" title="Toggle microphone"></button>
+              <button id="pvCam" class="round-btn" title="Toggle camera"></button>
+            </div>
+            <div class="meter" title="Mic level"><span id="micMeter"></span></div>
+          </div>
+          <div class="device-row">
+            <select id="camSelect" class="input" aria-label="Camera"></select>
+            <select id="micSelect" class="input" aria-label="Microphone"></select>
+          </div>
+          <p id="mediaNote" class="hint">Tip: use headphones so others don't hear an echo.</p>
+        </div>
+      </div>
+    </div>
+    <footer class="lobby-foot">WASD / arrows to move · drag to look around · click a chair to sit</footer>
+  </section>
+
+  <!-- ============ IN-ROOM HUD ============ -->
+  <div id="hud" hidden>
+    <div class="room-pill glass">
+      <span class="dot live"></span>
+      <span>Room</span>
+      <strong id="roomCode">-----</strong>
+      <button id="copyLink" class="mini-btn" title="Copy invite link">🔗 Invite</button>
+      <span class="sep"></span>
+      <span id="peopleCount">1</span>&nbsp;online
+    </div>
+
+    <div id="pomo" class="pomo glass" data-phase="focus">
+      <div class="pomo-phase" id="pomoPhase">Focus</div>
+      <div class="pomo-time" id="pomoTime">25:00</div>
+      <div class="pomo-btns">
+        <button class="mini-btn" data-pomo="toggle" id="pomoToggle" title="Start / pause">▶</button>
+        <button class="mini-btn" data-pomo="skip" title="Skip to next phase">⏭</button>
+        <button class="mini-btn" data-pomo="reset" title="Reset">↺</button>
+        <button class="mini-btn" data-pomo="settings" title="Timer lengths">⚙</button>
+      </div>
+      <div class="pomo-settings" id="pomoSettings" hidden>
+        <label>Focus <input type="number" id="pomoFocus" min="1" max="120" value="25" /> min</label>
+        <label>Break <input type="number" id="pomoBreak" min="1" max="60" value="5" /> min</label>
+        <button class="mini-btn" id="pomoApply">Apply</button>
+      </div>
+    </div>
+
+    <div id="presentBanner" class="banner glass" hidden>
+      <span id="presentText">Someone is presenting</span>
+      <button id="takeSeatBtn" class="btn primary sm">🪑 Take a seat</button>
+      <button id="viewScreenBtn" class="btn sm">⛶ View screen</button>
+    </div>
+
+    <div id="presenterPanel" class="presenter glass" hidden>
+      <div class="presenter-head">
+        <strong>🎤 You're presenting</strong>
+        <button id="stopPresentBtn" class="mini-btn danger">Stop</button>
+      </div>
+      <label class="check"><input type="checkbox" id="broadcastToggle" checked /> Everyone hears me at full volume</label>
+      <div class="presenter-row">
+        <button id="shareScreenBtn2" class="btn sm">🖥 Share screen</button>
+        <button id="uploadSlidesBtn" class="btn sm">📄 Upload slides</button>
+        <input id="slidesInput" type="file" accept="image/*,application/pdf" multiple hidden />
+      </div>
+      <div id="slideNav" class="presenter-row" hidden>
+        <button id="prevSlide" class="btn sm">◀ Prev</button>
+        <span id="slideCounter" class="slide-counter">1 / 1</span>
+        <button id="nextSlide" class="btn sm">Next ▶</button>
+        <button id="clearSlides" class="mini-btn" title="Remove slides">✕</button>
+      </div>
+      <p class="hint">Tip: PageUp / PageDown (or a presentation clicker) changes slides.</p>
+    </div>
+
+    <aside id="side" class="side glass" hidden>
+      <div class="side-tabs">
+        <button data-tab="chat" class="active">Chat</button>
+        <button data-tab="people">People <span id="peopleCount2">1</span></button>
+        <button id="closeSide" class="icon-btn" aria-label="Close panel">✕</button>
+      </div>
+      <div class="side-body" data-pane="chat">
+        <div id="chatLog" class="chat-log" aria-live="polite"></div>
+        <form id="chatForm" class="chat-form">
+          <input id="chatInput" class="input" maxlength="500" placeholder="Message everyone… (Enter)" autocomplete="off" />
+          <button class="btn primary sm" type="submit">Send</button>
+        </form>
+      </div>
+      <div class="side-body" data-pane="people" hidden>
+        <ul id="peopleList" class="people"></ul>
+      </div>
+    </aside>
+
+    <div id="reactBar" class="react-bar glass" hidden>
+      <button data-emoji="👏" title="Clap (1)">👏</button>
+      <button data-emoji="😂" title="Laugh (2)">😂</button>
+      <button data-emoji="❤️" title="Love (3)">❤️</button>
+      <button data-emoji="👍" title="Thumbs up (4)">👍</button>
+      <button data-emoji="🎉" title="Celebrate (5)">🎉</button>
+      <button data-emoji="🤔" title="Hmm (6)">🤔</button>
+    </div>
+
+    <nav id="controls" class="controls glass" aria-label="Room controls">
+      <button id="micBtn" class="ctl" title="Mute / unmute (M)"><span class="ic"></span><span class="tx">Mic</span></button>
+      <button id="camBtn" class="ctl" title="Camera on / off (V)"><span class="ic"></span><span class="tx">Camera</span></button>
+      <button id="shareBtn" class="ctl" title="Share your screen on the big screen"><span class="ic"></span><span class="tx">Share</span></button>
+      <button id="presentBtn" class="ctl" title="Presenter mode"><span class="ic"></span><span class="tx">Present</span></button>
+      <span class="ctl-sep"></span>
+      <button id="reactBtn" class="ctl" title="Reactions (1-6)"><span class="ic"></span><span class="tx">React</span></button>
+      <label class="ctl status-ctl" title="Your status">
+        <span class="ic status-dot" id="statusDot"></span>
+        <select id="statusSelect" aria-label="Status"></select>
+      </label>
+      <button id="standBtn" class="ctl" title="Stand up (Space)" hidden><span class="ic"></span><span class="tx">Stand</span></button>
+      <span class="ctl-sep"></span>
+      <button id="avatarBtn" class="ctl" title="Edit avatar"><span class="ic"></span><span class="tx">Avatar</span></button>
+      <button id="chatBtn" class="ctl" title="Chat (Enter)"><span class="ic"></span><span class="tx">Chat</span><span id="unread" class="badge" hidden>0</span></button>
+      <button id="peopleBtn" class="ctl" title="People"><span class="ic"></span><span class="tx">People</span></button>
+      <button id="leaveBtn" class="ctl danger" title="Leave room"><span class="ic"></span><span class="tx">Leave</span></button>
+    </nav>
+
+    <div id="helpHint" class="help glass">
+      <span id="helpText"><strong>WASD</strong> move · <strong>Shift</strong> run · <strong>drag</strong> look · <strong>scroll</strong> zoom · <strong>click a chair</strong> to sit · <strong>click the floor</strong> to walk</span>
+      <button id="hideHelp" class="icon-btn" aria-label="Hide tips">✕</button>
+    </div>
+    <div id="reconnect" class="reconnect" hidden>Connection lost — reconnecting…</div>
+  </div>
+
+  <div id="editorModal" class="modal" aria-hidden="true"></div>
+
+  <div id="screenModal" class="modal" aria-hidden="true">
+    <div class="screen-view">
+      <div class="screen-stage">
+        <video id="screenVideo" autoplay muted playsinline></video>
+        <img id="screenImg" alt="Current slide" />
+        <div id="screenEmpty" class="screen-empty">Nothing is being shown yet.</div>
+      </div>
+      <div class="screen-bar">
+        <span id="screenTitle">Big screen</span>
+        <span class="spacer"></span>
+        <button id="screenPrev" class="btn sm" hidden>◀ Prev</button>
+        <span id="screenCounter" class="slide-counter" hidden></span>
+        <button id="screenNext" class="btn sm" hidden>Next ▶</button>
+        <button id="screenClose" class="btn sm">Close (Esc)</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toasts" aria-live="polite"></div>
+  <div id="loading" class="loading"><div class="spinner"></div><span>Building the office…</span></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>

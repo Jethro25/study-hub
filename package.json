@@ -1,0 +1,20 @@
+{
+  "name": "study-office-3d",
+  "version": "1.0.0",
+  "description": "Browser-based 3D virtual office for studying and presenting together",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "express": "^5.3.0",
+    "pdfjs-dist": "6.5.438",
+    "socket.io": "^4.8.4",
+    "three": "0.187.0"
+  }
+}

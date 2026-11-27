@@ -1,0 +1,12 @@
+# One-click "Blueprint" deploy for Render (https://render.com). See README for the manual steps.
+services:
+  - type: web
+    name: study-hub-3d
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
