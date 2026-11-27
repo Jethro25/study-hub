@@ -4,7 +4,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildOffice, resolveCollisions, SPAWN, SCREEN, BOUNDS } from './office.js';
 import { buildAvatar, animateAvatar, normalizeAvatar, randomAvatar, EMOTIONS } from './avatar.js';
 import { createVideoPanel, createNameLabel, createEmojiLayer, STATUSES, statusColor, ROLES, ROLE_EMOJI } from './labels.js';
-import { ACTIONS, applyAction } from './actions.js';
+import { ACTIONS, ITEMS, applyAction } from './actions.js';
 import { createBubble } from './bubbles.js';
 import { createEditor, avatarThumbnail } from './editor.js';
 import { RTCMesh } from './rtc.js';
@@ -422,6 +422,7 @@ function makePlayer(p, isLocal) {
     status: p.status || 'Available',
     role: p.role || 'Employee',
     action: p.action || null,
+    item: p.item || null,
     actionAt: performance.now(),
     emotion: p.emotion || 'neutral',
     ask: p.ask || null,
@@ -691,19 +692,21 @@ socket.on('seat', ({ id, seat }) => {
   }
 });
 socket.on('chat', (m) => { appendChat(m); speak(m); });
-socket.on('act', ({ id, action, emotion }) => {
+socket.on('act', ({ id, action, emotion, item }) => {
   const pl = players.get(id);
   if (!pl || pl.isLocal) return;
+  pl.item = item || null;
   if (action !== pl.action) { pl.action = action; pl.actionAt = performance.now(); }
   pl.emotion = emotion || 'neutral';
 });
-socket.on('give', ({ from, to }) => {
+socket.on('give', ({ from, to, item }) => {
   const giver = players.get(from), taker = players.get(to);
   if (!giver || !taker) return;
+  const it = ITEMS[item] ? item : 'papers';
   if (taker.isLocal) {
     setTimeout(() => {
-      toast(`📄 ${giver.name} handed you some papers`, 'ok');
-      doAction('holdpaper');
+      toast(`${ITEMS[it].emoji} ${giver.name} handed you: ${ITEMS[it].label}`, 'ok');
+      doAction('hold_' + it);
     }, 900);
   }
 });
@@ -1572,24 +1575,28 @@ function doAction(id) {
       const d = Math.hypot(p.pos.x - local.pos.x, p.pos.z - local.pos.z);
       if (d < bd) { bd = d; best = p; }
     }
-    if (!best) { toast('Walk up to someone first, then hand them the papers 📄'); return; }
+    if (!best) { toast('Walk up to someone first, then hand them what you are holding 🤝'); return; }
     if (!local.seat) {
       local.ry = Math.atan2(best.pos.x - local.pos.x, best.pos.z - local.pos.z);
       sendState(true);
     }
-    socket.emit('give', { to: best.id });
-    toast(`📄 You handed papers to ${best.name}`, 'ok');
+    // hand over whatever you're holding (papers if your hands are empty)
+    const holding = local.action && ACTIONS[local.action]?.item;
+    local.item = holding || 'papers';
+    socket.emit('give', { to: best.id, item: local.item });
+    toast(`${ITEMS[local.item].emoji} You handed ${ITEMS[local.item].label.toLowerCase()} to ${best.name}`, 'ok');
   }
   local.action = def ? id : null;
   local.actionAt = performance.now();
-  socket.emit('act', { action: local.action, emotion: local.emotion });
+  if (!def?.needsTarget) local.item = def?.item || null;
+  socket.emit('act', { action: local.action, emotion: local.emotion, item: local.item });
   renderActPanel();
 }
 
 function setEmotion(e) {
   if (!local) return;
   local.emotion = EMOTIONS.some((x) => x.id === e) ? e : 'neutral';
-  socket.emit('act', { action: local.action, emotion: local.emotion });
+  socket.emit('act', { action: local.action, emotion: local.emotion, item: local.item });
   renderActPanel();
 }
 
@@ -1654,6 +1661,13 @@ function renderActPanel() {
       (groups[a.group] ||= []).push({ ...a, active: local.action === id, onClick: () => doAction(local.action === id ? null : id) });
     }
     for (const [g, items] of Object.entries(groups)) section(g, items);
+  } else if (actTab === 'items') {
+    section('Hold something', Object.entries(ITEMS).map(([id, it]) => ({ ...it, active: local.action === 'hold_' + id, onClick: () => doAction(local.action === 'hold_' + id ? null : 'hold_' + id) })));
+    const h = document.createElement('div');
+    h.className = 'act-tip';
+    h.style.margin = '10px 2px 0';
+    h.textContent = 'Walk up to someone and use 🤝 Hand item (Actions tab) to give it to them.';
+    body.appendChild(h);
   } else {
     section('How are you feeling?', EMOTIONS.map((e) => ({ ...e, active: local.emotion === e.id, onClick: () => setEmotion(e.id) })));
   }
@@ -1740,7 +1754,7 @@ function appendAskCard(pl) {
 const USES = {
   coffee: { action: 'coffee', msg: '☕ You grabbed a coffee' },
   read: { action: 'read', msg: '📖 You picked a book off the shelf' },
-  papers: { action: 'holdpaper', msg: '📄 You picked up some printed papers' },
+  papers: { action: 'hold_papers', msg: '📄 You picked up some printed papers' },
 };
 function useObject(kind, point) {
   if (!local || !USES[kind]) return;
@@ -1832,7 +1846,7 @@ function frame() {
       const phoneTalk = pl.action === 'phone' && Math.sin(now / 900) > -0.2;
       const talking = speaking || now < pl.talkUntil || phoneTalk;
       animateAvatar(pl.av, dt, { speed: pl.speed, sitting: !!seat, typing: !!seat?.typing && !pl.action, talking, emotion });
-      applyAction(pl.av, dt, { action: pl.action, sitting: !!seat, desk: !!seat?.typing, moving: pl.speed > 0.6 });
+      applyAction(pl.av, dt, { action: pl.action, sitting: !!seat, desk: !!seat?.typing, moving: pl.speed > 0.6, item: pl.item });
       // labels & video panel above the head
       const rp = pl.av.root.position;
       const top = rp.y + pl.av.headTop;

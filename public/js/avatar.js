@@ -1636,8 +1636,10 @@ export function animateAvatar(av, dt, state) {
     // swish side to side with the steps, flare a little, and drape forward over the lap when sitting
     const sway = Math.sin(a.phase) * 0.07 * walk;
     const flare = 1 + 0.07 * walk * Math.abs(Math.sin(a.phase)) + Math.min(0.12, Math.abs(a.turn) * 0.02);
-    s.pivot.rotation.set(-sit * (s.long ? 1.15 : 1.3) + walk * 0.05, -a.turn * 0.02, sway);
-    s.pivot.scale.set(flare, 1 - sit * 0.15, flare);
+    // seated: the front of the skirt lies over the thighs (tilt forward, shorten, widen front-to-back)
+    s.pivot.rotation.set(-sit * 1.38 + walk * 0.05, -a.turn * 0.02, sway);
+    s.pivot.position.y = 0.63 + sit * 0.07;
+    s.pivot.scale.set(flare, 1 - sit * 0.3, flare * (1 - sit * 0.5));
   }
 
   // face: blink every few seconds, flap the mouth while talking

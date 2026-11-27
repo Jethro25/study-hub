@@ -78,7 +78,9 @@ function newRoom(code) {
 // Roles, actions and expressions players can pick (keep in sync with public/js/actions.js + avatar.js)
 const ROLES = new Set(['Manager', 'Team Lead', 'Employee', 'Intern', 'HR', 'Designer', 'Developer', 'Secretary', 'Student', 'Teacher', 'Guest']);
 const ACTIONS = new Set(['wave', 'clap', 'cheer', 'dance', 'nod', 'shake', 'shrug', 'facepalm', 'bow', 'point', 'raise', 'stretch',
-  'think', 'idea', 'write', 'sign', 'read', 'type', 'listen', 'phone', 'coffee', 'give', 'holdpaper', 'sleep']);
+  'think', 'idea', 'write', 'sign', 'read', 'type', 'listen', 'phone', 'coffee', 'give', 'sleep']);
+const ITEMS = new Set(['papers', 'documents', 'book', 'notebook', 'clipboard', 'pen', 'laptop', 'tablet', 'phone', 'mug', 'bottle', 'sticky', 'calculator', 'stapler', 'envelope', 'badge', 'box']);
+for (const it of ITEMS) ACTIONS.add('hold_' + it);
 const EMOTIONS = new Set(['neutral', 'happy', 'laugh', 'excited', 'love', 'surprised', 'thinking', 'confused', 'shy', 'sad', 'cry', 'angry', 'sleepy']);
 const pickRole = (r) => (ROLES.has(r) ? r : 'Employee');
 function publicAsk(a) {
@@ -112,7 +114,7 @@ function publicPlayer(p) {
   return {
     id: p.id, name: p.name, avatar: p.avatar, pos: p.pos, status: p.status,
     mic: p.mic, cam: p.cam, seat: p.seat, streamId: p.streamId, joinedAt: p.joinedAt,
-    role: p.role, action: p.action, emotion: p.emotion, ask: publicAsk(p.ask),
+    role: p.role, action: p.action, emotion: p.emotion, item: p.item, ask: publicAsk(p.ask),
   };
 }
 
@@ -312,12 +314,13 @@ io.on('connection', (socket) => {
     if (!inRoom() || !d) return;
     if ('action' in d) me.action = ACTIONS.has(d.action) ? d.action : null;
     if ('emotion' in d) me.emotion = EMOTIONS.has(d.emotion) ? d.emotion : 'neutral';
-    socket.to(room.code).emit('act', { id: socket.id, action: me.action, emotion: me.emotion });
+    if ('item' in d) me.item = ITEMS.has(d.item) ? d.item : null;
+    socket.to(room.code).emit('act', { id: socket.id, action: me.action, emotion: me.emotion, item: me.item });
   });
   // hand something (papers) to another player
   socket.on('give', (d) => {
     if (!inRoom() || !d || !room.players.has(d.to) || d.to === socket.id) return;
-    io.to(room.code).emit('give', { from: socket.id, to: d.to, item: 'papers' });
+    io.to(room.code).emit('give', { from: socket.id, to: d.to, item: ITEMS.has(d.item) ? d.item : 'papers' });
   });
   // ask a question with options A/B/C/D that others can vote on
   socket.on('ask', (d) => {

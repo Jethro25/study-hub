@@ -32,10 +32,33 @@ export const ACTIONS = {
   listen: { group: 'Office work', emoji: '👂', label: 'Listen', dur: 0, emo: 'neutral' },
   phone: { group: 'Office work', emoji: '📞', label: 'Phone call', dur: 0, emo: 'neutral', talks: true },
   coffee: { group: 'Office work', emoji: '☕', label: 'Coffee break', dur: 0, emo: 'happy', carry: true },
-  give: { group: 'Office work', emoji: '📄', label: 'Hand papers', dur: 2.2, emo: 'happy', needsTarget: true },
-  holdpaper: { group: null, emoji: '📄', label: 'Holding papers', dur: 0, emo: 'neutral', carry: true },
+  give: { group: 'Office work', emoji: '🤝', label: 'Hand item', dur: 2.2, emo: 'happy', needsTarget: true },
   sleep: { group: 'Office work', emoji: '😴', label: 'Nap', dur: 0, emo: 'sleepy', indicator: 'sleep' },
 };
+
+/** Things you can hold (Items tab). two: held with both hands. look: glance down at it. */
+export const ITEMS = {
+  papers: { emoji: '📄', label: 'Papers', prop: 'papers' },
+  documents: { emoji: '🗂️', label: 'Documents folder', prop: 'folder', look: true },
+  book: { emoji: '📕', label: 'Book', prop: 'bookClosed' },
+  notebook: { emoji: '📓', label: 'Notebook', prop: 'notebook', look: true },
+  clipboard: { emoji: '📋', label: 'Clipboard', prop: 'clipboard', look: true },
+  pen: { emoji: '🖊️', label: 'Pen', prop: 'pen' },
+  laptop: { emoji: '💻', label: 'Laptop', prop: 'laptop', two: true, look: true },
+  tablet: { emoji: '📲', label: 'Tablet', prop: 'tablet', look: true },
+  phone: { emoji: '📱', label: 'Phone', prop: 'phone' },
+  mug: { emoji: '☕', label: 'Coffee mug', prop: 'mug' },
+  bottle: { emoji: '🥤', label: 'Water bottle', prop: 'bottle' },
+  sticky: { emoji: '🗒️', label: 'Sticky notes', prop: 'sticky' },
+  calculator: { emoji: '🧮', label: 'Calculator', prop: 'calculator', look: true },
+  stapler: { emoji: '📎', label: 'Stapler', prop: 'stapler' },
+  envelope: { emoji: '✉️', label: 'Envelope', prop: 'envelope' },
+  badge: { emoji: '🪪', label: 'ID card', prop: 'badge' },
+  box: { emoji: '📦', label: 'File box', prop: 'filebox', two: true },
+};
+for (const [id, it] of Object.entries(ITEMS)) {
+  ACTIONS['hold_' + id] = { group: null, emoji: it.emoji, label: 'Holding: ' + it.label, dur: 0, emo: 'neutral', carry: true, item: id };
+}
 export const ACTION_IDS = Object.keys(ACTIONS);
 
 // ---------- props (shared geometry + materials) ----------
@@ -50,6 +73,15 @@ const coffeeMat = PM('#5a3825', { roughness: 0.3 });
 const phoneMat = PM('#1c1e26', { roughness: 0.25 });
 const screenMat = new THREE.MeshBasicMaterial({ color: '#7ab8ff' });
 const bookMat = PM('#c0392b');
+const folderMat = PM('#e8c170', { side: THREE.DoubleSide });
+const greyMat = PM('#b9bcc6', { metalness: 0.4, roughness: 0.35 });
+const darkMat = PM('#2b2e38', { roughness: 0.4 });
+const blueMat = PM('#4a6fd8');
+const bottleMat = PM('#8fd0ff', { transparent: true, opacity: 0.7, roughness: 0.1 });
+const yellowMat = PM('#ffe06b', { roughness: 0.9 });
+const redMat = PM('#d8443c', { roughness: 0.4 });
+const creamMat = PM('#f3e6c8', { roughness: 0.9 });
+const cardboardMat = PM('#b88a5a', { roughness: 0.95 });
 const G = {
   sheet: new THREE.BoxGeometry(0.16, 0.002, 0.22),
   stack: new THREE.BoxGeometry(0.16, 0.025, 0.22),
@@ -72,7 +104,34 @@ const add = (parent, geo, mat, x = 0, y = 0, z = 0) => {
   parent.add(m);
   return m;
 };
+/** a flat thing held in front of the hand (like a sheet facing you) */
+const held = (build, y = -0.06, z = 0.05, tilt = Math.PI / 2 - 0.35) => {
+  const g = new THREE.Group();
+  const b = new THREE.Group();
+  b.position.set(0, y, z);
+  b.rotation.set(tilt, 0, 0);
+  g.add(b);
+  build(b);
+  return g;
+};
 const PROPS = {
+  folder: () => held((b) => { add(b, new THREE.BoxGeometry(0.17, 0.012, 0.23), folderMat); add(b, G.sheet, paperMat, 0.005, 0.008, -0.015); }),
+  bookClosed: () => held((b) => { add(b, new THREE.BoxGeometry(0.13, 0.035, 0.18), bookMat); add(b, new THREE.BoxGeometry(0.12, 0.03, 0.17), paperMat, 0.006, 0, 0); }),
+  notebook: () => held((b) => { add(b, new THREE.BoxGeometry(0.11, 0.014, 0.15), blueMat); add(b, new THREE.BoxGeometry(0.006, 0.018, 0.15), darkMat, -0.056, 0, 0); }),
+  tablet: () => held((b) => { add(b, new THREE.BoxGeometry(0.13, 0.008, 0.18), darkMat); const s = add(b, new THREE.PlaneGeometry(0.115, 0.16), screenMat, 0, 0.0045, 0); s.rotation.x = -Math.PI / 2; }),
+  calculator: () => held((b) => { add(b, new THREE.BoxGeometry(0.075, 0.014, 0.115), darkMat); add(b, new THREE.BoxGeometry(0.06, 0.004, 0.025), new THREE.MeshBasicMaterial({ color: '#b8e0b0' }), 0, 0.008, -0.035); for (let i = 0; i < 12; i++) add(b, new THREE.BoxGeometry(0.012, 0.004, 0.01), greyMat, -0.02 + (i % 3) * 0.02, 0.008, -0.005 + Math.floor(i / 3) * 0.017); }),
+  sticky: () => held((b) => { add(b, new THREE.BoxGeometry(0.075, 0.02, 0.075), yellowMat); }, -0.05, 0.04),
+  envelope: () => held((b) => { add(b, new THREE.BoxGeometry(0.17, 0.004, 0.1), creamMat); const f = add(b, new THREE.BoxGeometry(0.12, 0.002, 0.07), PM('#e6d4ac'), 0, 0.003, -0.012); f.rotation.y = Math.PI / 4; f.scale.set(0.6, 1, 0.6); }),
+  badge: () => held((b) => { add(b, new THREE.BoxGeometry(0.055, 0.004, 0.08), paperMat); add(b, new THREE.BoxGeometry(0.055, 0.005, 0.02), blueMat, 0, 0.001, -0.03); add(b, new THREE.BoxGeometry(0.022, 0.005, 0.026), PM('#f0c9a8'), -0.01, 0.002, 0.008); }, -0.05, 0.03),
+  stapler() { const g = new THREE.Group(); add(g, new THREE.BoxGeometry(0.035, 0.03, 0.12), redMat, 0, -0.05, 0.04); add(g, new THREE.BoxGeometry(0.037, 0.012, 0.12), darkMat, 0, -0.07, 0.04); return g; },
+  bottle() { const g = new THREE.Group(); add(g, new THREE.CylinderGeometry(0.028, 0.028, 0.16, 14), bottleMat, 0, -0.06, 0.04); add(g, new THREE.CylinderGeometry(0.018, 0.018, 0.025, 12), blueMat, 0, 0.03, 0.04); return g; },
+  laptop: () => held((b) => {
+    add(b, new THREE.BoxGeometry(0.28, 0.015, 0.19), greyMat);
+    const lid = new THREE.Group(); lid.position.set(0, 0.008, -0.095); lid.rotation.x = -1.9; b.add(lid);
+    add(lid, new THREE.BoxGeometry(0.28, 0.01, 0.19), greyMat, 0, 0, 0.095);
+    const s = add(lid, new THREE.PlaneGeometry(0.25, 0.16), screenMat, 0, -0.0055, 0.095); s.rotation.x = Math.PI / 2;
+  }, -0.04, 0.09, 0.15),
+  filebox: () => held((b) => { add(b, new THREE.BoxGeometry(0.3, 0.2, 0.22), cardboardMat); add(b, new THREE.BoxGeometry(0.06, 0.03, 0.005), darkMat, 0, 0.04, 0.112); }, -0.08, 0.12, 0),
   pen() { const g = new THREE.Group(); const p = add(g, G.pen, penMat, 0, -0.04, 0.02); p.rotation.x = 0.5; return g; },
   papers() {
     const g = new THREE.Group();
@@ -172,7 +231,7 @@ function pose(id, t, c) {
     case 'point':
       return { R: { x: -1.45, z: 0.12, ex: 0.05 }, head: { y: -0.08 } };
     case 'raise':
-      return { R: { x: -0.1, z: 2.95 + 0.06 * S(t * 3), ex: 0.15 }, head: { x: -0.12 } };
+      return { R: { x: -0.35, z: 2.55 + 0.06 * S(t * 3), ex: 0.2 }, head: { x: -0.1, z: 0.06 } };
     case 'stretch': {
       const k = t < 0.6 ? smooth(t / 0.6) : t > 2.5 ? smooth(Math.max(0, 1 - (t - 2.5) / 0.7)) : 1;
       return { L: { x: -0.3 * k, z: 2.8 * k, ex: 0.2 }, R: { x: -0.3 * k, z: 2.8 * k, ex: 0.2 }, head: { x: -0.3 * k }, lean: -0.08 * k, bob: 0.02 * k };
@@ -211,12 +270,17 @@ function pose(id, t, c) {
     }
     case 'give':
       return { R: { x: -1.3, z: 0.05, ex: 0.25 }, head: { x: 0.05 }, lean: c.sit ? 0 : 0.08 };
-    case 'holdpaper':
-      return { R: { x: -0.9, z: -0.2, ex: 1.35 }, head: { x: 0.28 } };
     case 'sleep':
       if (c.sit) return { L: { x: -1.3, z: -0.55, ex: 1.75 }, R: { x: -1.3, z: -0.55, ex: 1.75 }, head: { x: 0.45, y: 0.5, z: 0.15 }, lean: c.desk ? 0.6 : 0.15 };
       return { L: down, R: down, head: { x: 0.4 + 0.05 * S(t * 1.1), z: 0.12 * S(t * 0.5) }, sway: 0.02 * S(t * 0.6) };
-    default: return null;
+    default: {
+      const it = ACTIONS[id]?.item && ITEMS[ACTIONS[id].item];
+      if (!it) return null;
+      const look = it.look ? 0.28 + 0.03 * S(t * 0.8) : 0.05;
+      if (it.prop === 'filebox') return { L: { x: -0.75, z: -0.05, ex: 1.05 }, R: { x: -0.75, z: -0.05, ex: 1.05 }, head: { x: 0.05 } };
+      if (it.two) return { L: { x: -0.7, z: -0.28, ex: 1.25 }, R: { x: -0.7, z: -0.28, ex: 1.25 }, head: { x: look } };
+      return { R: { x: -0.62, z: -0.2, ex: 1.35 }, head: { x: look } };
+    }
   }
 }
 
@@ -229,8 +293,11 @@ function propsFor(id, c) {
     case 'type': return c.desk ? [] : [['phone', 'L']];
     case 'phone': return [['phone', 'R']];
     case 'coffee': return [['mug', 'R']];
-    case 'give': case 'holdpaper': return [['papers', 'R']];
-    default: return [];
+    case 'give': return [[ITEMS[c.item]?.prop || 'papers', 'R']];
+    default: {
+      const it = ACTIONS[id]?.item && ITEMS[ACTIONS[id].item];
+      return it ? [[it.prop, 'R']] : [];
+    }
   }
 }
 
@@ -253,7 +320,7 @@ export function applyAction(av, dt, st) {
   const active = a.cur && a.cur === want;
   a.w = lerp(a.w, active ? 1 : 0, 1 - Math.exp(-dt * 9));
   a.t += dt;
-  const c = { sit: !!st.sitting, desk: !!st.desk };
+  const c = { sit: !!st.sitting, desk: !!st.desk, item: st.item };
   const def = a.cur && ACTIONS[a.cur];
   const P = def ? pose(a.cur, a.t, c) : null;
   const w = a.w;
@@ -304,6 +371,13 @@ export function applyAction(av, dt, st) {
     av.legs.L.hip.rotation.x -= l;
     av.legs.R.hip.rotation.x -= l;
   } else av.bob.position.z = 0;
+  // gravity: hanging hair (ponytails, braids, long hair) keeps hanging down when the head tilts or the body leans
+  const tiltX = av.head.rotation.x + (P.lean || 0) * w;
+  const tiltZ = av.head.rotation.z + (P.sway || 0) * w;
+  for (const d of av.dyn?.hair || []) {
+    d.pivot.rotation.x -= tiltX * 0.9;
+    d.pivot.rotation.z -= tiltZ * 0.9;
+  }
   if (P.legs) {
     av.legs.L.knee.rotation.x += P.legs.L * w;
     av.legs.R.knee.rotation.x += P.legs.R * w;
