@@ -953,9 +953,10 @@ export function buildAvatar(rawCfg) {
   else mesh(headGeo(), skin, headInner);
 
   // ears
-  // big round ears that stick out, like the reference
+  // big round ears that stick out (like the reference) when the hair doesn't cover them
   const earInner = M(shade(cfg.skin, 0.86), 0.65);
-  for (const s of [-1, 1]) {
+  const earsShow = ['bald', 'spiky', 'manbun'].includes(cfg.hair) && !['beanie', 'bucket', 'frog'].includes(cfg.hat);
+  for (const s of earsShow ? [-1, 1] : []) {
     const ex = (0.262 * shapeScale[0] / 0.88 + 0.04) * s;
     const ear = mesh(sphere(0.085, 18, 14), skin, head, ex, -0.045, -0.01);
     ear.scale.set(0.5, 1, 0.82);
@@ -1021,7 +1022,8 @@ export function buildAvatar(rawCfg) {
     m.scale.set(width, len / 2, depth);
     return m;
   }
-  const capHair = (tilt = -0.45, tl = Math.PI * 0.56, k = 1.05) => {
+  const capHair = (tilt = -0.45, tl = Math.PI * 0.56, k = 1.07) => {
+    tl = Math.max(tl, Math.PI * 0.62); // always reach down to the nape
     const c = mesh(hemi(hr * k, tl), hairM, hairGroup);
     c.rotation.x = tilt;
     return c;
@@ -1103,7 +1105,7 @@ export function buildAvatar(rawCfg) {
       break;
     }
     case 'manbun':
-      capHair(-0.5, Math.PI * 0.52, 1.03);
+      capHair(-0.5, Math.PI * 0.52, 1.06);
       bangs('swept', 6, 0.15);
       bunAt(0, hr * 0.82, -hr * 0.52, 0.08);
       mesh(torus(0.05, 0.014), acc, hairGroup, 0, hr * 0.74, -hr * 0.43).rotation.x = -0.9;
@@ -1128,12 +1130,11 @@ export function buildAvatar(rawCfg) {
       backLocks(0.52, 11, 0.25, { straight: 0.6, out: 0.08 });
       const ends = [];
       for (let i = 0; i < 9; i++) { const a = Math.PI + (i / 8 - 0.5) * 3.6; ends.push([Math.sin(a) * hr * 1.2, -0.38, Math.cos(a) * hr * 1.15]); }
-      ends.forEach(([x, y, z]) => mesh(sphere(0.05, 12, 10), hairM, hairGroup, x, y, z).scale.set(1, 1.25, 1));
       ahoge();
       break;
     }
     case 'curly': {
-      capHair(-0.4, Math.PI * 0.5, 1.0);
+      capHair(-0.35, Math.PI * 0.55, 1.07);
       const n = 46;
       for (let i = 0; i < n; i++) {
         const yy = 1 - (i / (n - 1)) * 1.45;
