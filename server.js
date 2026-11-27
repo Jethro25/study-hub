@@ -79,7 +79,7 @@ function newRoom(code) {
 const ROLES = new Set(['Manager', 'Team Lead', 'Employee', 'Intern', 'HR', 'Designer', 'Developer', 'Secretary', 'Student', 'Teacher', 'Guest']);
 const ACTIONS = new Set(['wave', 'clap', 'cheer', 'dance', 'nod', 'shake', 'shrug', 'facepalm', 'bow', 'point', 'raise', 'stretch',
   'think', 'idea', 'write', 'sign', 'read', 'type', 'listen', 'phone', 'coffee', 'give', 'sleep']);
-const ITEMS = new Set(['papers', 'documents', 'book', 'notebook', 'clipboard', 'pen', 'laptop', 'tablet', 'phone', 'mug', 'bottle', 'sticky', 'calculator', 'stapler', 'envelope', 'badge', 'box']);
+const ITEMS = new Set(['papers', 'documents', 'book', 'notebook', 'clipboard', 'pen', 'laptop', 'tablet', 'phone', 'mug', 'bottle', 'sticky', 'calculator', 'stapler', 'envelope', 'badge', 'box', 'headset', 'marker', 'binder', 'sketchbook', 'snack', 'umbrella', 'keys', 'plant']);
 for (const it of ITEMS) ACTIONS.add('hold_' + it);
 const EMOTIONS = new Set(['neutral', 'happy', 'laugh', 'excited', 'love', 'surprised', 'thinking', 'confused', 'shy', 'sad', 'cry', 'angry', 'sleepy']);
 const pickRole = (r) => (ROLES.has(r) ? r : 'Employee');

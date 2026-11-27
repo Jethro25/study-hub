@@ -55,6 +55,15 @@ export const ITEMS = {
   envelope: { emoji: '✉️', label: 'Envelope', prop: 'envelope' },
   badge: { emoji: '🪪', label: 'ID card', prop: 'badge' },
   box: { emoji: '📦', label: 'File box', prop: 'filebox', two: true },
+  // new items from Claude Design sheet 05
+  headset: { emoji: '🎧', label: 'Headset', prop: 'headset' },
+  marker: { emoji: '🖍️', label: 'Whiteboard marker', prop: 'marker' },
+  binder: { emoji: '📒', label: 'Binder', prop: 'binder', look: true },
+  sketchbook: { emoji: '🎨', label: 'Sketchbook', prop: 'sketchbook', look: true },
+  snack: { emoji: '🍙', label: 'Snack (onigiri)', prop: 'onigiri' },
+  umbrella: { emoji: '☂️', label: 'Umbrella', prop: 'umbrella', hang: true },
+  keys: { emoji: '🔑', label: 'Keys', prop: 'keys', hang: true },
+  plant: { emoji: '🪴', label: 'Plant pot', prop: 'plantpot', two: true },
 };
 for (const [id, it] of Object.entries(ITEMS)) {
   ACTIONS['hold_' + id] = { group: null, emoji: it.emoji, label: 'Holding: ' + it.label, dur: 0, emo: 'neutral', carry: true, item: id };
@@ -131,6 +140,14 @@ const PROPS = {
     add(lid, new THREE.BoxGeometry(0.28, 0.01, 0.19), greyMat, 0, 0, 0.095);
     const s = add(lid, new THREE.PlaneGeometry(0.25, 0.16), screenMat, 0, -0.0055, 0.095); s.rotation.x = Math.PI / 2;
   }, -0.04, 0.09, 0.15),
+  headset() { const g = new THREE.Group(); const band = add(g, new THREE.TorusGeometry(0.05, 0.007, 6, 16, Math.PI), darkMat, 0, -0.02, 0.04); band.rotation.z = Math.PI; for (const s of [-1, 1]) { const c = add(g, new THREE.CylinderGeometry(0.025, 0.025, 0.02, 14), blueMat, s * 0.05, -0.025, 0.04); c.rotation.z = Math.PI / 2; } return g; },
+  marker() { const g = new THREE.Group(); const m = add(g, new THREE.CylinderGeometry(0.008, 0.008, 0.1, 8), paperMat, 0, -0.05, 0.02); m.rotation.x = 0.5; const cap = add(m, new THREE.CylinderGeometry(0.009, 0.009, 0.03, 8), redMat, 0, 0.04, 0); return g; },
+  binder: () => held((b) => { add(b, new THREE.BoxGeometry(0.15, 0.04, 0.2), blueMat); add(b, new THREE.BoxGeometry(0.02, 0.042, 0.2), darkMat, -0.066, 0, 0); add(b, new THREE.BoxGeometry(0.06, 0.042, 0.03), paperMat, 0.02, 0.001, -0.06); }),
+  sketchbook: () => held((b) => { add(b, new THREE.BoxGeometry(0.2, 0.012, 0.15), creamMat); add(b, new THREE.BoxGeometry(0.2, 0.016, 0.012), darkMat, 0, 0, -0.075); }),
+  onigiri() { const g = new THREE.Group(); const r = add(g, new THREE.CylinderGeometry(0.035, 0.035, 0.025, 3), paperMat, 0, -0.06, 0.045); r.rotation.set(Math.PI / 2, 0, Math.PI / 2); add(g, new THREE.BoxGeometry(0.03, 0.028, 0.027), darkMat, 0, -0.075, 0.045); return g; },
+  umbrella() { const g = new THREE.Group(); add(g, new THREE.ConeGeometry(0.035, 0.5, 10), PM('#6b5bd8'), 0, -0.33, 0.0).rotation.x = Math.PI; add(g, new THREE.CylinderGeometry(0.006, 0.006, 0.1, 6), darkMat, 0, -0.04, 0); const h = add(g, new THREE.TorusGeometry(0.025, 0.007, 6, 12, Math.PI), darkMat, 0.025, 0.01, 0); h.rotation.z = 0; return g; },
+  keys() { const g = new THREE.Group(); const ring = add(g, new THREE.TorusGeometry(0.018, 0.003, 6, 14), greyMat, 0, -0.05, 0.01); ring.rotation.y = Math.PI / 2; add(g, new THREE.BoxGeometry(0.008, 0.045, 0.004), PM('#e0b84a', { metalness: 0.6 }), 0, -0.085, 0.01); add(g, new THREE.BoxGeometry(0.008, 0.04, 0.004), greyMat, 0.012, -0.08, 0.012).rotation.z = 0.4; return g; },
+  plantpot: () => held((b) => { add(b, new THREE.CylinderGeometry(0.09, 0.07, 0.13, 16), PM('#c46a4a')); for (let i = 0; i < 4; i++) add(b, new THREE.IcosahedronGeometry(0.06, 0), PM('#4f8a4b', { flatShading: true }), Math.cos(i * 1.6) * 0.04, 0.11 + (i % 2) * 0.04, Math.sin(i * 1.6) * 0.04); }, -0.06, 0.12, 0),
   filebox: () => held((b) => { add(b, new THREE.BoxGeometry(0.3, 0.2, 0.22), cardboardMat); add(b, new THREE.BoxGeometry(0.06, 0.03, 0.005), darkMat, 0, 0.04, 0.112); }, -0.08, 0.12, 0),
   pen() { const g = new THREE.Group(); const p = add(g, G.pen, penMat, 0, -0.04, 0.02); p.rotation.x = 0.5; return g; },
   papers() {
@@ -277,7 +294,8 @@ function pose(id, t, c) {
       const it = ACTIONS[id]?.item && ITEMS[ACTIONS[id].item];
       if (!it) return null;
       const look = it.look ? 0.28 + 0.03 * S(t * 0.8) : 0.05;
-      if (it.prop === 'filebox') return { L: { x: -0.75, z: -0.05, ex: 1.05 }, R: { x: -0.75, z: -0.05, ex: 1.05 }, head: { x: 0.05 } };
+      if (it.hang) return { R: { x: 0.05, z: 0.18, ex: 0.15 }, head: { x: 0.05 } };
+      if (it.prop === 'filebox' || it.prop === 'plantpot') return { L: { x: -0.75, z: -0.05, ex: 1.05 }, R: { x: -0.75, z: -0.05, ex: 1.05 }, head: { x: 0.05 } };
       if (it.two) return { L: { x: -0.7, z: -0.28, ex: 1.25 }, R: { x: -0.7, z: -0.28, ex: 1.25 }, head: { x: look } };
       return { R: { x: -0.62, z: -0.2, ex: 1.35 }, head: { x: look } };
     }
