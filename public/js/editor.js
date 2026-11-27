@@ -21,8 +21,8 @@ function ensurePreview(canvas) {
   scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
   scene.environmentIntensity = 0.5;
   const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
-  camera.position.set(0, 1.25, 5.2);
-  camera.lookAt(0, 1.0, 0);
+  camera.position.set(0, 1.05, 4.3);
+  camera.lookAt(0, 0.86, 0);
   scene.add(new THREE.HemisphereLight('#fff5e8', '#7d6b5a', 1.2));
   const key = new THREE.DirectionalLight('#ffe9cf', 2.2);
   key.position.set(2.5, 4, 3);
@@ -69,8 +69,8 @@ export function avatarThumbnail(cfg, canvas) {
   p.renderer.getSize(size);
   p.renderer.setSize(320, 360, false);
   p.camera.aspect = 320 / 360;
-  p.camera.position.set(0, 1.35, 4.3);
-  p.camera.lookAt(0, 1.08, 0);
+  p.camera.position.set(0, 1.12, 3.4);
+  p.camera.lookAt(0, 0.9, 0);
   p.camera.updateProjectionMatrix();
   p.renderer.render(p.scene, p.camera);
   const url = p.renderer.domElement.toDataURL('image/png');
@@ -228,8 +228,8 @@ export function createEditor({ root }) {
     const r = canvas.parentElement.getBoundingClientRect();
     preview.renderer.setSize(r.width, r.height, false);
     preview.camera.aspect = r.width / r.height;
-    preview.camera.position.set(0, 1.25, 5.2);
-    preview.camera.lookAt(0, 1.0, 0);
+    preview.camera.position.set(0, 1.05, 4.3);
+    preview.camera.lookAt(0, 0.86, 0);
     preview.camera.updateProjectionMatrix();
   }
 

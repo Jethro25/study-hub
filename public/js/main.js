@@ -820,7 +820,7 @@ async function sitAt(seatId, { quiet = false, faceScreen = false } = {}) {
   local.vel.set(0, 0, 0);
   moveTarget = null;
   cam.yaw = seat.ry + Math.PI;
-  if (faceScreen || seat.type === 'meeting') { cam.pitch = 0.1; cam.dist = 2.0; }
+  if (faceScreen || seat.type === 'meeting') { cam.pitch = 0.06; cam.dist = 1.9; }
   $('standBtn').hidden = false;
   if (seat.type === 'desk' && local.status === 'Available') { setStatus('Studying'); state.autoStatus = true; }
   sendState(true);
@@ -955,7 +955,9 @@ function updateCamera(dt) {
     camera.lookAt(0, 0, -1);
     return;
   }
-  const h = local.av.root.position.y + local.av.headTop - 0.35;
+  const seatNow = local.seat && office.seats.get(local.seat);
+  const lift = seatNow && seatNow.type === 'meeting' ? 0.55 : 0; // look over your own (big chibi) head at the screen
+  const h = local.av.root.position.y + local.av.headTop - 0.35 + lift;
   const target = new THREE.Vector3(local.av.root.position.x, h, local.av.root.position.z);
   cam.introT += dt;
   const follow = cam.introT < 2 ? 2.5 : 10;
