@@ -384,6 +384,7 @@ function joinPayload(extra = {}) {
     cam: camLive(),
     streamId: rtc.localStream.id,
     pos,
+    build: pageBuild,
     ...extra,
   };
 }
@@ -619,8 +620,24 @@ function leaveRoom() {
 socket.on('disconnect', () => {
   if (state.phase === 'room') $('reconnect').hidden = false;
 });
+// ----- auto-update: when a new version is deployed, refresh and rejoin the same room -----
+let pageBuild = null;
+socket.on('hello', ({ build }) => {
+  if (!pageBuild) { pageBuild = build; return; }
+  if (build === pageBuild) return;
+  try {
+    if (state.phase === 'room' && state.code) {
+      sessionStorage.setItem('autoRejoin', JSON.stringify({ code: state.code, name: $('nameInput').value, role: $('roleInput').value }));
+    }
+  } catch { /* private mode */ }
+  toast('✨ Updating Study Hub to the new version…', 'ok', 4000);
+  setTimeout(() => location.reload(), 600);
+});
+
 socket.on('connect', async () => {
   if (state.phase !== 'room' || !local) return;
+  // give the server a moment to say which version it runs (a new one means we reload instead)
+  await new Promise((r) => setTimeout(r, 300));
   const res = await emitAck('room:join', joinPayload({ code: state.code, rejoin: true }));
   $('reconnect').hidden = true;
   if (!res?.ok) { toast(res?.error || 'Could not rejoin the room', 'error', 6000); leaveRoom(); return; }
@@ -1905,6 +1922,18 @@ refreshThumb();
 requestAnimationFrame(frame);
 lobbyMeter();
 initMedia();
+// after an auto-update reload, jump straight back into the same room
+try {
+  const re = JSON.parse(sessionStorage.getItem('autoRejoin') || 'null');
+  if (re?.code) {
+    sessionStorage.removeItem('autoRejoin');
+    $('nameInput').value = re.name || '';
+    if (re.role) $('roleInput').value = re.role;
+    $('codeInput').value = re.code;
+    const go = () => (socket.connected && pageBuild ? joinFromLobby('join') : setTimeout(go, 300));
+    setTimeout(go, 800);
+  }
+} catch { /* ignore */ }
 setTimeout(() => (urlCode ? $('nameInput') : $('nameInput')).focus(), 300);
 
 // handy for debugging & automated tests

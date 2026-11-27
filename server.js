@@ -189,7 +189,11 @@ setInterval(() => {
 }, 500);
 
 // ---------- sockets ----------
+// Changes on every deploy, so open pages can tell a new version went live and refresh themselves.
+const BUILD = process.env.RENDER_GIT_COMMIT || String(Date.now());
+
 io.on('connection', (socket) => {
+  socket.emit('hello', { build: BUILD });
   let room = null;
   let me = null;
 
@@ -249,6 +253,8 @@ io.on('connection', (socket) => {
   socket.on('room:join', (payload, ack) => {
     const code = clampStr(payload?.code, 8).toUpperCase();
     // After a server restart (e.g. a redeploy) clients transparently re-create their room.
+    // pages from before auto-update existed can't refresh themselves: ask them to
+    if (payload?.rejoin && !payload?.build) return ack?.({ ok: false, error: 'Study Hub was updated 🎉 Refresh the page (press F5) to get the new features, then join again.' });
     if (payload?.rejoin && !rooms.has(code) && /^[A-Z2-9]{5}$/.test(code)) rooms.set(code, newRoom(code));
     join(code, payload, ack);
   });
