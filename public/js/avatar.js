@@ -25,6 +25,7 @@ export const CLOTH_COLORS = ['#f7f3ea', '#ffc8d8', '#f49ac1', '#fde7a8', '#b9e4a
 
 export const AVATAR_SCHEMA = [
   { section: 'Body', fields: [
+    { key: 'gender', label: 'Body shape', type: 'choice', options: ['female', 'male'], labels: { female: 'Female', male: 'Male' } },
     { key: 'skin', label: 'Skin tone', type: 'swatch', options: SKIN_TONES },
     { key: 'bodyType', label: 'Body type', type: 'choice', options: ['slim', 'regular', 'broad'] },
     { key: 'height', label: 'Height', type: 'range', min: 0.85, max: 1.15, step: 0.01 },
@@ -69,7 +70,7 @@ export const AVATAR_SCHEMA = [
 ];
 
 export const DEFAULT_AVATAR = {
-  skin: '#f8d0b4', bodyType: 'regular', height: 1,
+  gender: 'female', skin: '#f8d0b4', bodyType: 'regular', height: 1,
   faceShape: 'round', eyes: 'round', eyeColor: '#6b3e26', mouth: 'smile', blush: true,
   hair: 'bob', hairColor: '#3b2a24',
   top: 'hoodie', topColor: '#a9cdf2', topPattern: 'plain', print: 'star',
@@ -109,6 +110,11 @@ export function randomAvatar() {
   if (cfg.hair === 'bald' && Math.random() < 0.8) cfg.hair = pick(HAIR_STYLES.slice(0, -1));
   cfg.blush = Math.random() < 0.7;
   cfg.eyes = Math.random() < 0.6 ? pick(['round', 'star', 'sharp']) : cfg.eyes;
+  if (cfg.gender === 'male') {
+    if (Math.random() < 0.85) cfg.hair = pick(['short', 'swept', 'curtains', 'spiky', 'manbun', 'curly']);
+    if (['skirt', 'ruffle', 'long', 'sundress', 'pinafore'].includes(cfg.bottom) && Math.random() < 0.85) cfg.bottom = pick(['pants', 'wide', 'cargo', 'joggers', 'track', 'shorts']);
+    if (['cami', 'offshoulder'].includes(cfg.top)) cfg.top = pick(['tshirt', 'hoodie', 'polo']);
+  }
   cfg.hairColor = Math.random() < 0.7 ? pick(HAIR_COLORS.slice(0, 6)) : pick(HAIR_COLORS);
   cfg.eyeColor = pick(EYE_COLORS);
   cfg.topColor = Math.random() < 0.75 ? pick(CLOTH_COLORS) : randColor(0.6, 0.6);
@@ -152,8 +158,8 @@ const lockGeo = () => geo('lock', () => {
 });
 
 // ---------- the painted face ----------
-const FACE_W = 512, FACE_H = 404; // 269 px per radian on the head sphere
-const FACE_PHI = 0.95, FACE_THETA0 = 0.8, FACE_THETA_LEN = 1.5;
+const FACE_W = 512, FACE_H = 471; // 269 px per radian on the head sphere
+const FACE_PHI = 0.95, FACE_THETA0 = 0.6, FACE_THETA_LEN = 1.75;
 const PX = FACE_W / (FACE_PHI * 2);
 
 function shade(hex, k) { return '#' + new THREE.Color(hex).multiplyScalar(k).getHexString(); }
@@ -165,14 +171,14 @@ function drawFace(cfg) {
   g.lineCap = 'round';
   g.lineJoin = 'round';
   const ink = '#2b1b1b';
-  const eyeY = (FACE_THETA0 + 0.12) * PX;
-  const eyeDX = 0.41 * PX;
+  const eyeY = (FACE_THETA0 + 0.44) * PX;
+  const eyeDX = 0.42 * PX;
   const brow = cfg.hair === 'bald' ? shade(cfg.skin, 0.55) : shade(cfg.hairColor, 0.75);
 
   // blush (with little anime hatch lines)
   if (cfg.blush) {
     for (const s of [-1, 1]) {
-      const bx = FACE_W / 2 + s * 0.47 * PX, by = eyeY + 0.2 * PX;
+      const bx = FACE_W / 2 + s * 0.55 * PX, by = eyeY + 0.2 * PX;
       const grd = g.createRadialGradient(bx, by, 2, bx, by, 34);
       grd.addColorStop(0, 'rgba(255,120,130,0.55)');
       grd.addColorStop(1, 'rgba(255,120,130,0)');
@@ -270,13 +276,13 @@ function drawFace(cfg) {
   for (const side of [-1, 1]) {
     const cx = FACE_W / 2 + side * eyeDX;
     g.save();
-    g.translate(cx, eyeY); g.scale(1.32, 1.32); g.translate(-cx, -eyeY);
+    g.translate(cx, eyeY); g.scale(1.42, 1.42); g.translate(-cx, -eyeY);
     drawEye(cx, eyeY, side, cfg.eyes);
     g.restore();
     // eyebrows
     g.strokeStyle = brow;
     g.lineWidth = 6;
-    const by = eyeY - 86;
+    const by = eyeY - 102;
     const raise = cfg.mouth === 'cool' && side > 0 ? -8 : 0;
     g.beginPath();
     g.moveTo(cx - 26, by + 6 + raise * (side > 0 ? 0.3 : 0));
@@ -290,7 +296,7 @@ function drawFace(cfg) {
   g.beginPath(); g.moveTo(FACE_W / 2 - 3, eyeY + 0.22 * PX); g.lineTo(FACE_W / 2 + 2, eyeY + 0.25 * PX); g.stroke();
 
   // mouth
-  const mx = FACE_W / 2, my = eyeY + 0.36 * PX;
+  const mx = FACE_W / 2, my = eyeY + 0.4 * PX;
   g.strokeStyle = '#6b2e35';
   g.fillStyle = '#7a2f3a';
   g.lineWidth = 4.5;
@@ -496,14 +502,19 @@ function printTexture(kind, color) {
 }
 
 // ---------- sculpted body shapes (smooth lathe surfaces, like a single base mesh) ----------
-// Torso silhouette: [world y, radius] from crotch to the base of the neck.
-const BODY_PROFILE = [
-  [0.5, 0.0], [0.505, 0.055], [0.52, 0.09], [0.56, 0.114], [0.62, 0.124], [0.68, 0.116], [0.74, 0.1],
-  [0.78, 0.096], [0.84, 0.106], [0.9, 0.12], [0.94, 0.122], [0.965, 0.108], [0.985, 0.08], [0.997, 0.045], [1.0, 0.0],
-];
-const DEPTH = 0.72; // torso is an ellipse in cross-section
-function rAt(y) {
-  const P = BODY_PROFILE;
+// Torso silhouettes [world y, half-width], measured from the reference base model
+// (head = 1/3 of the height, narrow chest, tiny waist, wide hips for female).
+const BODY_PROFILES = {
+  female: [
+    [0.55, 0.0], [0.56, 0.1], [0.6, 0.162], [0.66, 0.18], [0.71, 0.16], [0.76, 0.112], [0.8, 0.098], [0.84, 0.1],
+    [0.89, 0.116], [0.93, 0.126], [0.97, 0.124], [0.995, 0.112], [1.012, 0.085], [1.024, 0.05], [1.032, 0.0],
+  ],
+  male: [
+    [0.55, 0.0], [0.56, 0.1], [0.6, 0.145], [0.66, 0.152], [0.71, 0.144], [0.76, 0.13], [0.8, 0.126], [0.84, 0.13],
+    [0.89, 0.142], [0.93, 0.152], [0.97, 0.156], [0.995, 0.148], [1.012, 0.115], [1.026, 0.06], [1.036, 0.0],
+  ],
+};
+function profileAt(P, y) {
   if (y <= P[0][0]) return P[0][1];
   for (let i = 1; i < P.length; i++) {
     if (y <= P[i][0]) {
@@ -516,25 +527,25 @@ function rAt(y) {
   return 0;
 }
 /** A slice of the torso surface between y0 and y1, pushed out by `inflate` (for clothes). */
-function bodySlice(y0, y1, inflate = 0, flare = 0) {
-  return geo(`slice${y0}_${y1}_${inflate}_${flare}`, () => {
+function bodySlice(gender, y0, y1, inflate = 0) {
+  const P = BODY_PROFILES[gender];
+  return geo(`slice${gender}${y0}_${y1}_${inflate}`, () => {
     const pts = [];
-    const n = Math.max(6, Math.round((y1 - y0) / 0.012));
+    const n = Math.max(6, Math.round((y1 - y0) / 0.01));
     for (let i = 0; i <= n; i++) {
       const y = y0 + ((y1 - y0) * i) / n;
-      let r = rAt(y);
+      const r = profileAt(P, y);
       if (r < 0.0005 && (i === 0 || i === n)) { pts.push(new THREE.Vector2(0, y)); continue; }
-      r += inflate + flare * Math.max(0, (y1 - y) / (y1 - y0) - 0.5);
-      pts.push(new THREE.Vector2(r, y));
+      pts.push(new THREE.Vector2(r + inflate, y));
     }
-    const g = new THREE.LatheGeometry(pts, 36);
+    const g = new THREE.LatheGeometry(pts, 40);
     g.computeVertexNormals();
     return g;
   });
 }
 /** Smooth tapered capsule (rounded ends), centered on its local origin, along Y. */
 function taper(rt, rb, len, seg = 20) {
-  return geo(`taper${rt}_${rb}_${len}`, () => {
+  return geo(`taper${rt}_${rb}_${len}_${seg}`, () => {
     const pts = [];
     const steps = 8;
     for (let i = 0; i <= steps; i++) { const a = (i / steps) * (Math.PI / 2); pts.push(new THREE.Vector2(rt * Math.sin(a), len / 2 + rt * Math.cos(a))); }
@@ -549,9 +560,21 @@ function taper(rt, rb, len, seg = 20) {
 function tube(rt, rb, len, seg = 24) {
   return geo(`tube${rt}_${rb}_${len}_${seg}`, () => new THREE.CylinderGeometry(rt, rb, len, seg, 1, true));
 }
+/** Chibi head shape: the lower half narrows into soft cheeks and a small chin. Applied to the head and the face shell. */
+function chibiDeform(g) {
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const y = p.getY(i) / 0.3;
+    if (y < 0) { const k = 1 - 0.16 * Math.pow(-y, 2.2); p.setX(i, p.getX(i) * k); p.setZ(i, p.getZ(i) * (1 - 0.08 * Math.pow(-y, 2))); }
+    else p.setZ(i, p.getZ(i) * (1 + 0.04 * y)); // fuller cranium
+  }
+  g.computeVertexNormals();
+  return g;
+}
+const headGeo = () => geo('chibiHead', () => chibiDeform(new THREE.SphereGeometry(0.3, 48, 36)));
 
 const R = 0.3; // head radius
-const HEAD_Y = 1.3;
+const HEAD_Y = 1.35;
 
 /**
  * Build an avatar. Returns an object with the root group, the animatable pivots and helpers.
@@ -626,22 +649,28 @@ export function buildAvatar(rawCfg) {
   const shoeGloss = M(cfg.shoeColor, 0.25);
   const gold = M('#f0c75e', 0.3, { metalness: 0.4 });
 
-  // ----- sculpted torso -----
+  // ----- sculpted torso (female / male silhouettes) -----
+  const G = cfg.gender;
+  const P = BODY_PROFILES[G];
+  const rAt = (y) => profileAt(P, y);
+  const male = G === 'male';
+  const TOPY = P[P.length - 1][0]; // base of the neck
+  const SH_Y = 0.99; // shoulder joints
   const TY = 0.62; // torso pivot height (it leans while walking)
-  const wz = DEPTH * Math.min(w, 1.1);
+  const wz = (male ? 0.7 : 0.68) * Math.min(w, 1.1);
   const frontAt = (y, inf = 0) => (rAt(y) + inf) * wz;
   const torso = new THREE.Group();
   torso.position.set(0, TY, 0);
   bob.add(torso);
   /** body-shaped shell between world heights y0..y1 */
-  const shell = (y0, y1, inf, mat, parent = torso, flare = 0) => {
-    const m = mesh(bodySlice(y0, y1, inf, flare), mat, parent, 0, parent === torso ? -TY : 0, 0);
+  const shell = (y0, y1, inf, mat, parent = torso) => {
+    const m = mesh(bodySlice(G, y0, y1, inf), mat, parent, 0, parent === torso ? -TY : 0, 0);
     m.scale.set(w, 1, wz);
     return m;
   };
   /** a vertical strip that hugs the body (zips, plackets, lapels, straps). angle 0 = front centre */
   const strip = (y0, y1, inf, angle, halfWidth, mat, parent = torso) => {
-    const g = geo(`strip${y0}_${y1}_${inf}_${angle}_${halfWidth}`, () => {
+    const g = geo(`strip${G}${y0}_${y1}_${inf}_${angle}_${halfWidth}`, () => {
       const pts = [];
       for (let i = 0; i <= 10; i++) { const y = y0 + ((y1 - y0) * i) / 10; pts.push(new THREE.Vector2(rAt(y) + inf, y)); }
       return new THREE.LatheGeometry(pts, 4, angle - halfWidth, halfWidth * 2);
@@ -659,143 +688,145 @@ export function buildAvatar(rawCfg) {
     return m;
   };
   const dot = (y, inf, mat, r = 0.008, x = 0) => mesh(sphere(r, 8, 6), mat, torso, x, y - TY, frontAt(y, inf) + r * 0.5);
-  shell(0.5, 0.775, 0, skin, bob);
-  shell(0.73, 1.0, 0, skin);
+  shell(0.55, 0.8, 0, skin, bob);
+  shell(0.76, TOPY, 0, skin);
 
-  // ----- legs (hip pivot at 0.6) -----
+  // ----- legs: thick, straight, close together, flaring a little at the ankle -----
   const HIP = 0.6;
   const B = cfg.bottom;
   const T = cfg.top;
   const pantsLike = ['pants', 'wide', 'cargo', 'joggers', 'track', 'overalls'].includes(B);
   const longSock = cfg.socks === 'long' || cfg.socks === 'legwarmers';
   const legs = {};
-  const SY = -0.28; // shoe height in the knee frame
+  const SY = -0.27; // shoe height in the knee frame
 
   const buildShoe = (knee) => {
     switch (cfg.shoeStyle) {
       case 'hightops':
-        mesh(rbox(0.086, 0.058, 0.155, 0.028), shoe, knee, 0, SY, 0.022);
-        mesh(rbox(0.09, 0.022, 0.16, 0.01), sole, knee, 0, SY - 0.026, 0.022);
-        mesh(taper(0.05, 0.05, 0.04, 16), shoe, knee, 0, SY + 0.045, 0);
-        mesh(sphere(0.036, 12, 10), sole, knee, 0, SY - 0.004, 0.08).scale.set(1.1, 0.7, 0.8);
+        mesh(rbox(0.1, 0.06, 0.16, 0.03), shoe, knee, 0, SY, 0.022);
+        mesh(rbox(0.104, 0.022, 0.165, 0.01), sole, knee, 0, SY - 0.026, 0.022);
+        mesh(taper(0.066, 0.066, 0.04, 18), shoe, knee, 0, SY + 0.045, 0);
+        mesh(sphere(0.04, 12, 10), sole, knee, 0, SY - 0.004, 0.085).scale.set(1.1, 0.7, 0.8);
         break;
       case 'maryjanes':
       case 'platforms': {
         const lift = cfg.shoeStyle === 'platforms' ? 0.03 : 0;
-        mesh(rbox(0.08, 0.05, 0.15, 0.025), shoeGloss, knee, 0, SY + lift, 0.022);
-        mesh(rbox(0.085, 0.01, 0.02, 0.004), shoeGloss, knee, 0, SY + lift + 0.03, 0.03);
-        mesh(sphere(0.007, 8, 6), sole, knee, 0.04, SY + lift + 0.03, 0.03);
-        if (lift) mesh(rbox(0.088, 0.045, 0.158, 0.012), M(shade(cfg.shoeColor, 0.6), 0.5), knee, 0, SY - 0.024, 0.022);
+        mesh(rbox(0.095, 0.05, 0.155, 0.025), shoeGloss, knee, 0, SY + lift, 0.022);
+        mesh(rbox(0.1, 0.01, 0.02, 0.004), shoeGloss, knee, 0, SY + lift + 0.03, 0.03);
+        mesh(sphere(0.007, 8, 6), sole, knee, 0.047, SY + lift + 0.03, 0.03);
+        if (lift) mesh(rbox(0.1, 0.045, 0.16, 0.012), M(shade(cfg.shoeColor, 0.6), 0.5), knee, 0, SY - 0.024, 0.022);
         break;
       }
       case 'boots':
-        mesh(taper(0.052, 0.052, 0.1, 16), shoe, knee, 0, SY + 0.07, 0);
-        mesh(rbox(0.088, 0.06, 0.158, 0.028), shoe, knee, 0, SY, 0.022);
-        mesh(rbox(0.092, 0.024, 0.162, 0.01), M('#22232a', 0.6), knee, 0, SY - 0.026, 0.022);
+        mesh(taper(0.068, 0.068, 0.1, 18), shoe, knee, 0, SY + 0.07, 0);
+        mesh(rbox(0.1, 0.06, 0.16, 0.028), shoe, knee, 0, SY, 0.022);
+        mesh(rbox(0.104, 0.024, 0.165, 0.01), M('#22232a', 0.6), knee, 0, SY - 0.026, 0.022);
         break;
       case 'bunny': {
         const s = mesh(sphere(1, 18, 14), shoe, knee, 0, SY - 0.002, 0.03);
-        s.scale.set(0.058, 0.046, 0.098);
+        s.scale.set(0.066, 0.048, 0.1);
         for (const e of [-1, 1]) {
-          const ear = mesh(taper(0.014, 0.012, 0.035), shoe, knee, e * 0.024, SY + 0.055, 0.0);
+          const ear = mesh(taper(0.015, 0.013, 0.035), shoe, knee, e * 0.026, SY + 0.056, 0.0);
           ear.rotation.set(-0.35, 0, -e * 0.25);
-          mesh(sphere(0.007, 8, 6), dark, knee, e * 0.022, SY + 0.018, 0.12);
+          mesh(sphere(0.007, 8, 6), dark, knee, e * 0.024, SY + 0.018, 0.122);
         }
-        mesh(sphere(0.008, 8, 6), M('#ff8fa3', 0.6), knee, 0, SY + 0.003, 0.13);
+        mesh(sphere(0.008, 8, 6), M('#ff8fa3', 0.6), knee, 0, SY + 0.003, 0.132);
         break;
       }
       default: // sneakers
-        mesh(rbox(0.086, 0.058, 0.155, 0.028), shoe, knee, 0, SY, 0.022);
-        mesh(rbox(0.09, 0.022, 0.16, 0.01), sole, knee, 0, SY - 0.026, 0.022);
-        mesh(rbox(0.045, 0.01, 0.05, 0.004), sole, knee, 0, SY + 0.032, 0.05);
+        mesh(rbox(0.1, 0.06, 0.16, 0.03), shoe, knee, 0, SY, 0.022);
+        mesh(rbox(0.104, 0.022, 0.165, 0.01), sole, knee, 0, SY - 0.026, 0.022);
+        mesh(rbox(0.05, 0.01, 0.05, 0.004), sole, knee, 0, SY + 0.033, 0.055);
     }
   };
 
-  const tR = 0.066 * limbW, kR = 0.054 * limbW, aR = 0.042 * limbW; // thigh / knee / ankle radii
+  const tR = (male ? 0.084 : 0.09) * limbW, kR = 0.072 * limbW, aR = 0.075 * limbW; // thigh / knee / ankle
+  const legX = (male ? 0.078 : 0.088) * w;
   for (const side of [-1, 1]) {
     const hip = new THREE.Group();
-    hip.position.set(0.058 * w * side, HIP, 0);
+    hip.position.set(legX * side, HIP, 0);
     bob.add(hip);
-    mesh(taper(tR, kR, 0.2), pantsLike ? bottomMat : skin, hip, 0, -0.145, 0).scale.setScalar(pantsLike ? 1.13 : 1);
-    if (B === 'shorts') mesh(tube(tR + 0.014, tR + 0.01, 0.13), bottomMat, hip, 0, -0.07, 0);
+    mesh(taper(tR, kR, 0.2), pantsLike ? bottomMat : skin, hip, 0, -0.15, 0).scale.setScalar(pantsLike ? 1.12 : 1);
+    if (B === 'shorts') mesh(tube(tR + 0.014, tR + 0.008, 0.13), bottomMat, hip, 0, -0.06, 0);
     if (B === 'cargo') mesh(rbox(0.024, 0.07, 0.06, 0.01), bottomDark, hip, side * (tR + 0.012), -0.17, 0);
     if (B === 'track') mesh(rbox(0.01, 0.24, 0.016, 0.004), white, hip, side * (tR + 0.006), -0.14, 0);
     const knee = new THREE.Group();
-    knee.position.set(0, -0.29, 0);
+    knee.position.set(0, -0.3, 0);
     hip.add(knee);
     const shinMat = pantsLike ? bottomMat : longSock ? sockMat : skin;
-    mesh(taper(kR, aR, 0.2), shinMat, knee, 0, -0.13, 0).scale.setScalar(pantsLike ? 1.18 : longSock ? 1.1 : 1);
-    if (B === 'wide') mesh(tube(kR + 0.012, aR + 0.048, 0.26), bottomMat, knee, 0, -0.13, 0);
-    if (B === 'joggers') mesh(tube(aR + 0.012, aR + 0.012, 0.035, 16), bottomDark, knee, 0, -0.24, 0);
-    if (B === 'cargo') mesh(torus(aR + 0.012, 0.012), bottomDark, knee, 0, -0.235, 0).rotation.x = Math.PI / 2;
-    if (B === 'track') mesh(rbox(0.01, 0.2, 0.014, 0.004), white, knee, side * (kR + 0.004), -0.12, 0);
-    if (!pantsLike && cfg.socks === 'ankle') mesh(tube(aR + 0.008, aR + 0.008, 0.045, 16), sockMat, knee, 0, -0.235, 0);
+    mesh(taper(kR, aR, 0.19), shinMat, knee, 0, -0.135, 0).scale.setScalar(pantsLike ? 1.15 : longSock ? 1.08 : 1);
+    if (B === 'wide') mesh(tube(kR + 0.012, aR + 0.04, 0.25), bottomMat, knee, 0, -0.135, 0);
+    if (B === 'joggers') mesh(tube(aR + 0.01, aR + 0.01, 0.035, 16), bottomDark, knee, 0, -0.235, 0);
+    if (B === 'cargo') mesh(torus(aR + 0.01, 0.012), bottomDark, knee, 0, -0.23, 0).rotation.x = Math.PI / 2;
+    if (B === 'track') mesh(rbox(0.01, 0.2, 0.014, 0.004), white, knee, side * (kR + 0.006), -0.13, 0);
+    if (!pantsLike && cfg.socks === 'ankle') mesh(tube(aR + 0.006, aR + 0.006, 0.045, 16), sockMat, knee, 0, -0.235, 0);
     if (!pantsLike && cfg.socks === 'legwarmers') {
-      [-0.08, -0.14, -0.2].forEach((y) => mesh(torus(kR + 0.004, 0.014), sockMat, knee, 0, y, 0).rotation.x = Math.PI / 2);
+      [-0.08, -0.14, -0.2].forEach((y) => mesh(torus(kR + 0.006, 0.015), sockMat, knee, 0, y, 0).rotation.x = Math.PI / 2);
     }
     buildShoe(knee);
     legs[side < 0 ? 'L' : 'R'] = { hip, knee };
   }
 
   // ----- bottoms around the hips -----
-  const wr = (rAt(0.72) + 0.012) * w; // waist radius for skirts
-  if (pantsLike || B === 'shorts') shell(0.5, 0.77, 0.008, bottomMat, bob);
-  else shell(0.66, 0.77, 0.008, bottomMat, bob);
-  if (B === 'skirt') mesh(tube(wr, wr * 1.7, 0.2, 14), pleatMat, bob, 0, 0.62, 0).scale.z = 0.8;
+  const st = (rAt(0.63) + 0.016) * w; // skirts start where the hips are widest
+  if (pantsLike || B === 'shorts') shell(0.55, 0.81, 0.008, bottomMat, bob);
+  else shell(0.62, 0.81, 0.012, bottomMat, bob);
+  if (B === 'skirt') mesh(tube(st, st * 1.32, 0.15, 16), pleatMat, bob, 0, 0.555, 0).scale.z = 0.82;
   else if (B === 'ruffle') {
-    mesh(tube(wr, wr * 1.42, 0.11), bottomMat, bob, 0, 0.665, 0).scale.z = 0.82;
-    mesh(tube(wr * 1.3, wr * 1.8, 0.11), bottomMat, bob, 0, 0.565, 0).scale.z = 0.82;
-    const lace = mesh(torus(+(wr * 1.78).toFixed(3), 0.011), M('#fffaf2', 0.9), bob, 0, 0.51, 0);
+    mesh(tube(st, st * 1.16, 0.08), bottomMat, bob, 0, 0.59, 0).scale.z = 0.82;
+    mesh(tube(st * 1.1, st * 1.42, 0.09), bottomMat, bob, 0, 0.51, 0).scale.z = 0.82;
+    const lace = mesh(torus(+(st * 1.4).toFixed(3), 0.011), M('#fffaf2', 0.9), bob, 0, 0.465, 0);
     lace.rotation.x = Math.PI / 2; lace.scale.y = 0.82;
-  } else if (B === 'long') mesh(tube(wr, wr * 1.95, 0.48), bottomMat, bob, 0, 0.48, 0).scale.z = 0.82;
-  else if (B === 'sundress') mesh(tube(wr, wr * 2.0, 0.28), bottomMat, bob, 0, 0.58, 0).scale.z = 0.82;
-  else if (B === 'pinafore') mesh(tube(wr, wr * 1.8, 0.25, 16), pleatMat, bob, 0, 0.6, 0).scale.z = 0.82;
+  } else if (B === 'long') mesh(tube(st, st * 1.55, 0.4), bottomMat, bob, 0, 0.43, 0).scale.z = 0.82;
+  else if (B === 'sundress') mesh(tube(st, st * 1.5, 0.22), bottomMat, bob, 0, 0.52, 0).scale.z = 0.82;
+  else if (B === 'pinafore') mesh(tube(st, st * 1.42, 0.19, 16), pleatMat, bob, 0, 0.535, 0).scale.z = 0.82;
 
   // ----- tops -----
   const oversize = ['sweater', 'hoodie', 'zipup', 'varsity'].includes(T) ? 1.08 : 1;
   const inf = oversize > 1 ? 0.022 : 0.013; // how far the top sits off the body
   const bareShoulders = T === 'cami' || T === 'offshoulder';
   const bodyTopMat = T === 'raglan' ? cream : topMat;
-  if (bareShoulders) shell(0.69, T === 'cami' ? 0.93 : 0.915, inf, topMat);
-  else shell(0.69, 0.997, inf, bodyTopMat);
+  const NECK = TOPY - 0.008;
+  if (bareShoulders) shell(0.7, T === 'cami' ? 0.965 : 0.955, inf, topMat);
+  else shell(0.7, TOPY - 0.002, inf, bodyTopMat);
   const hood = () => {
-    const h = mesh(torus(+(0.075 * w).toFixed(3), 0.038), topMat, torso, 0, 0.37, -0.035);
+    const h = mesh(torus(+(0.07 * w).toFixed(3), 0.036), topMat, torso, 0, NECK - TY, -0.035);
     h.rotation.x = Math.PI / 2 - 0.3;
     h.scale.set(1, 1, 0.8);
   };
-  const hem = (mat = rib) => ring(0.695, inf + 0.002, 0.014, mat);
-  const neck = (mat) => ring(0.99, 0.0, 0.012, mat).position.y += 0.002;
+  const hem = (mat = rib) => ring(0.705, inf + 0.002, 0.014, mat);
+  const neck = (mat) => ring(NECK - 0.004, 0.003, 0.011, mat);
   switch (T) {
     case 'hoodie':
       hood(); hem();
-      strip(0.71, 0.79, inf + 0.003, 0, 0.42, rib);
-      for (const s of [-1, 1]) mesh(taper(0.005, 0.005, 0.09, 6), white, torso, 0.028 * s, 0.29, frontAt(0.92, inf) + 0.006);
+      strip(0.72, 0.8, inf + 0.003, 0, 0.42, rib);
+      for (const s of [-1, 1]) mesh(taper(0.005, 0.005, 0.09, 6), white, torso, 0.026 * s, 0.33, frontAt(0.96, inf) + 0.006);
       break;
     case 'zipup':
       hood(); hem();
-      strip(0.7, 0.99, inf + 0.002, 0, 0.12, cream);
-      strip(0.7, 0.99, inf + 0.004, 0.03, 0.025, M('#d9d9de', 0.3, { metalness: 0.5 }));
-      for (const s of [-1, 1]) strip(0.71, 0.78, inf + 0.003, s * 0.6, 0.22, rib);
+      strip(0.71, NECK, inf + 0.002, 0, 0.12, cream);
+      strip(0.71, NECK, inf + 0.004, 0.03, 0.025, M('#d9d9de', 0.3, { metalness: 0.5 }));
+      for (const s of [-1, 1]) strip(0.72, 0.79, inf + 0.003, s * 0.6, 0.22, rib);
       break;
     case 'polo':
       for (const s of [-1, 1]) {
-        const c = mesh(rbox(0.06, 0.02, 0.045, 0.008), topMat, torso, 0.035 * s, 0.37, frontAt(0.98, inf) - 0.02);
+        const c = mesh(rbox(0.055, 0.02, 0.042, 0.008), topMat, torso, 0.032 * s, NECK - TY - 0.005, frontAt(1.0, inf) - 0.015);
         c.rotation.set(0.5, 0, -0.45 * s);
       }
-      strip(0.87, 0.985, inf + 0.002, 0, 0.06, rib);
-      for (const y of [0.95, 0.91]) dot(y, inf + 0.004, white, 0.006);
+      strip(0.9, NECK, inf + 0.002, 0, 0.06, rib);
+      for (const y of [0.985, 0.945]) dot(y, inf + 0.004, white, 0.006);
       break;
     case 'blazer':
-      strip(0.83, 0.99, inf + 0.001, 0, 0.3, white);
-      strip(0.8, 0.975, inf + 0.004, 0, 0.055, acc);
-      for (const s of [-1, 1]) strip(0.8, 0.98, inf + 0.003, s * 0.27, 0.1, rib);
-      for (const y of [0.78, 0.73]) dot(y, inf + 0.002, dark, 0.008);
+      strip(0.86, NECK, inf + 0.001, 0, 0.3, white);
+      strip(0.83, NECK - 0.01, inf + 0.004, 0, 0.055, acc);
+      for (const s of [-1, 1]) strip(0.83, NECK - 0.005, inf + 0.003, s * 0.27, 0.1, rib);
+      for (const y of [0.8, 0.75]) dot(y, inf + 0.002, dark, 0.008);
       break;
     case 'cardigan':
       hem();
-      strip(0.86, 0.99, inf + 0.001, 0, 0.22, cream);
-      strip(0.7, 0.86, inf + 0.002, 0.03, 0.02, rib);
-      for (const y of [0.84, 0.79, 0.74]) dot(y, inf + 0.003, cream, 0.008);
+      strip(0.89, NECK, inf + 0.001, 0, 0.22, cream);
+      strip(0.71, 0.89, inf + 0.002, 0.03, 0.02, rib);
+      for (const y of [0.87, 0.82, 0.77]) dot(y, inf + 0.003, cream, 0.008);
       break;
     case 'sweater':
       hem(); neck(rib);
@@ -806,28 +837,28 @@ export function buildAvatar(rawCfg) {
     case 'varsity': {
       const stripeMat = M(shade(cfg.topColor, 0.6), 0.85);
       hem(stripeMat);
-      ring(0.71, inf + 0.004, 0.006, cream);
+      ring(0.722, inf + 0.004, 0.006, cream);
       neck(stripeMat);
-      strip(0.7, 0.99, inf + 0.002, 0, 0.1, cream);
-      for (const y of [0.92, 0.86, 0.8, 0.74]) dot(y, inf + 0.004, cream, 0.008, 0.03);
+      strip(0.71, NECK, inf + 0.002, 0, 0.1, cream);
+      for (const y of [0.95, 0.89, 0.83, 0.77]) dot(y, inf + 0.004, cream, 0.008, 0.03);
       break;
     }
     case 'track':
       neck(topMat);
-      strip(0.7, 0.99, inf + 0.003, 0, 0.022, white);
+      strip(0.71, NECK, inf + 0.003, 0, 0.022, white);
       hem();
       break;
     case 'cami':
-      ring(0.93, inf, 0.008, M('#fffaf2', 0.9));
+      ring(0.965, inf, 0.008, M('#fffaf2', 0.9));
       for (const s of [-1, 1]) {
-        strip(0.92, 0.995, inf - 0.002, s * 0.48, 0.05, topMat);
-        strip(0.92, 0.995, inf - 0.002, Math.PI + s * 0.48, 0.05, topMat);
+        strip(0.955, TOPY - 0.004, inf - 0.002, s * 0.48, 0.05, topMat);
+        strip(0.955, TOPY - 0.004, inf - 0.002, Math.PI + s * 0.48, 0.05, topMat);
       }
-      bow(torso, 0, 0.3, frontAt(0.92, inf) + 0.01, 0.32, acc);
+      bow(torso, 0, 0.335, frontAt(0.955, inf) + 0.01, 0.32, acc);
       break;
     case 'offshoulder':
-      ring(0.915, inf + 0.01, 0.022, topMat);
-      bow(torso, 0, 0.29, frontAt(0.91, inf) + 0.03, 0.3, acc);
+      ring(0.955, inf + 0.01, 0.022, topMat);
+      bow(torso, 0, 0.325, frontAt(0.945, inf) + 0.03, 0.3, acc);
       break;
     default: // tshirt, striped
       neck(M(shade(cfg.skin, 0.9), 0.6));
@@ -835,30 +866,30 @@ export function buildAvatar(rawCfg) {
 
   // dresses / overalls go over the top
   if (B === 'sundress') {
-    shell(0.7, 0.9, inf + 0.012, bottomMat);
+    shell(0.73, 0.94, inf + 0.012, bottomMat);
     for (const s of [-1, 1]) {
-      strip(0.88, 0.997, inf + 0.01, s * 0.5, 0.06, bottomMat);
-      strip(0.88, 0.997, inf + 0.01, Math.PI + s * 0.5, 0.06, bottomMat);
+      strip(0.92, TOPY - 0.004, inf + 0.01, s * 0.5, 0.06, bottomMat);
+      strip(0.92, TOPY - 0.004, inf + 0.01, Math.PI + s * 0.5, 0.06, bottomMat);
     }
-    bow(torso, 0, 0.27, frontAt(0.89, inf + 0.012) + 0.01, 0.3, M('#fffaf2', 0.8));
+    bow(torso, 0, 0.31, frontAt(0.93, inf + 0.012) + 0.01, 0.3, M('#fffaf2', 0.8));
   } else if (B === 'pinafore' || B === 'overalls') {
-    shell(0.69, 0.77, inf + 0.012, bottomMat);
-    strip(0.76, 0.9, inf + 0.014, 0, 0.5, bottomMat);
-    if (B === 'overalls') strip(0.8, 0.85, inf + 0.018, 0, 0.18, bottomDark);
+    shell(0.71, 0.8, inf + 0.012, bottomMat);
+    strip(0.79, 0.93, inf + 0.014, 0, 0.5, bottomMat);
+    if (B === 'overalls') strip(0.83, 0.88, inf + 0.018, 0, 0.18, bottomDark);
     for (const s of [-1, 1]) {
-      strip(0.88, 0.997, inf + 0.012, s * 0.42, 0.07, bottomMat);
-      strip(0.75, 0.997, inf + 0.012, Math.PI + s * 0.42, 0.07, bottomMat);
-      mesh(sphere(0.01, 8, 6), gold, torso, Math.sin(s * 0.42) * (rAt(0.88) + inf + 0.02) * w, 0.88 - TY, frontAt(0.88, inf + 0.02) * Math.cos(0.42));
+      strip(0.91, TOPY - 0.004, inf + 0.012, s * 0.42, 0.07, bottomMat);
+      strip(0.78, TOPY - 0.004, inf + 0.012, Math.PI + s * 0.42, 0.07, bottomMat);
+      mesh(sphere(0.01, 8, 6), gold, torso, Math.sin(s * 0.42) * (rAt(0.91) + inf + 0.02) * w, 0.91 - TY, frontAt(0.91, inf + 0.02) * Math.cos(0.42));
     }
   }
 
   // chest print (a decal on the chest)
-  const tW = rAt(0.88) * 2 * w, tD = frontAt(0.88) * 2;
-  const front = frontAt(0.86, inf);
+  const tW = rAt(0.93) * 2 * w, tD = frontAt(0.93) * 2;
+  const front = frontAt(0.9, inf);
   if (cfg.print !== 'none' && B !== 'overalls' && B !== 'pinafore') {
     const small = ['zipup', 'blazer', 'cardigan', 'varsity', 'track', 'polo'].includes(T);
     const size = small ? 0.055 : 0.1;
-    const py = bareShoulders ? 0.8 : B === 'sundress' ? 0.84 : small ? 0.9 : 0.84;
+    const py = bareShoulders ? 0.84 : B === 'sundress' ? 0.87 : small ? 0.94 : 0.88;
     const ang = small ? -0.42 : 0;
     const pinf = inf + (B === 'sundress' ? 0.014 : 0) + 0.004;
     const pmat = new THREE.MeshStandardMaterial({ map: printTexture(cfg.print, cfg.accColor), transparent: true, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2 });
@@ -869,61 +900,69 @@ export function buildAvatar(rawCfg) {
     torso.add(plane);
   }
 
-  // ----- arms: thin, tapered, seamless -----
+  // ----- arms: thin and tapered, held slightly out (A-pose) with little fingers -----
   const shortSleeve = ['tshirt', 'polo'].includes(T);
   const sleeveMat = T === 'varsity' ? cream : topMat;
   const cuffs = ['hoodie', 'zipup', 'sweater', 'cardigan', 'varsity', 'track'].includes(T);
-  const sR = 0.042 * limbW, eR = 0.036 * limbW, wR = 0.03 * limbW; // shoulder / elbow / wrist radii
+  const aw = limbW * (male ? 1.15 : 1);
+  const sR = 0.036 * aw, eR = 0.03 * aw, wR = 0.026 * aw; // shoulder / elbow / wrist radii
   const arms = {};
   for (const side of [-1, 1]) {
     const shoulder = new THREE.Group();
-    shoulder.position.set((rAt(0.935) * w + 0.028) * side, 0.935, 0);
-    shoulder.rotation.z = 0.1 * side;
+    shoulder.position.set((rAt(SH_Y) * w + (male ? 0.02 : 0.016)) * side, SH_Y, 0);
     bob.add(shoulder);
     const sleeved = !bareShoulders || T === 'offshoulder';
-    mesh(sphere(sR + 0.004, 16, 12), bareShoulders ? skin : sleeveMat, shoulder).scale.setScalar(bareShoulders ? 1 : 1.18);
-    mesh(taper(sR, eR, 0.1), skin, shoulder, 0, -0.09, 0);
-    if (sleeved && !shortSleeve) mesh(taper(sR, eR, 0.1), sleeveMat, shoulder, 0, -0.09, 0).scale.setScalar(1.25);
-    if (shortSleeve) mesh(tube(sR + 0.012, sR + 0.016, 0.075, 18), topMat, shoulder, 0, -0.035, 0);
-    if (T === 'track') mesh(rbox(0.01, 0.13, 0.01, 0.004), white, shoulder, side * (sR + 0.008), -0.09, 0);
+    mesh(sphere(sR + 0.006, 16, 12), bareShoulders ? skin : sleeveMat, shoulder).scale.setScalar(bareShoulders ? 1 : 1.2);
+    mesh(taper(sR, eR, 0.155), skin, shoulder, 0, -0.112, 0);
+    if (sleeved && !shortSleeve) mesh(taper(sR, eR, 0.155), sleeveMat, shoulder, 0, -0.112, 0).scale.set(1.3, 1.02, 1.3);
+    if (shortSleeve) mesh(tube(sR + 0.013, sR + 0.017, 0.08, 18), topMat, shoulder, 0, -0.035, 0);
+    if (T === 'track') mesh(rbox(0.009, 0.15, 0.009, 0.004), white, shoulder, side * (sR + 0.009), -0.1, 0);
     const elbow = new THREE.Group();
-    elbow.position.set(0, -0.17, 0);
+    elbow.position.set(0, -0.225, 0);
     shoulder.add(elbow);
-    mesh(taper(eR, wR, 0.1), skin, elbow, 0, -0.075, 0);
-    if (sleeved && !shortSleeve) mesh(taper(eR, wR, 0.1), sleeveMat, elbow, 0, -0.072, 0).scale.set(1.3, 1.05, 1.3);
-    if (cuffs) mesh(tube(wR + 0.013, wR + 0.013, 0.028, 16), T === 'varsity' ? M(shade(cfg.topColor, 0.6), 0.85, { side: THREE.DoubleSide }) : rib, elbow, 0, -0.14, 0);
-    if (T === 'track') mesh(rbox(0.01, 0.1, 0.01, 0.004), white, elbow, side * (eR + 0.008), -0.075, 0);
-    // small mitten hand with a thumb
+    mesh(taper(eR, wR, 0.145), skin, elbow, 0, -0.098, 0);
+    if (sleeved && !shortSleeve) mesh(taper(eR, wR, 0.145), sleeveMat, elbow, 0, -0.095, 0).scale.set(1.35, 1.04, 1.35);
+    if (cuffs) mesh(tube(wR + 0.013, wR + 0.013, 0.026, 16), T === 'varsity' ? M(shade(cfg.topColor, 0.6), 0.85, { side: THREE.DoubleSide }) : rib, elbow, 0, -0.18, 0);
+    if (T === 'track') mesh(rbox(0.009, 0.11, 0.009, 0.004), white, elbow, side * (eR + 0.009), -0.098, 0);
+    // small hand: palm, thumb and three splayed fingers
     const hand = new THREE.Group();
-    hand.position.set(0, -0.165, 0);
+    hand.position.set(0, -0.21, 0);
     elbow.add(hand);
-    mesh(sphere(1, 14, 10), skin, hand, 0, -0.03, 0).scale.set(0.03, 0.04, 0.02);
-    const thumb = mesh(taper(0.009, 0.008, 0.016, 8), skin, hand, -side * 0.012, -0.018, 0.016);
-    thumb.rotation.set(0.6, 0, side * 0.4);
+    mesh(sphere(1, 14, 10), skin, hand, 0, -0.022, 0).scale.set(0.024 * aw, 0.03, 0.014);
+    const thumb = mesh(taper(0.0075, 0.0065, 0.018, 8), skin, hand, -side * 0.02, -0.018, 0.006);
+    thumb.rotation.set(0.2, 0, side * 0.9);
+    for (let f = 0; f < 3; f++) {
+      const fx = (f - 1) * 0.012 * aw;
+      const finger = mesh(taper(0.0062, 0.0055, 0.024, 8), skin, hand, fx, -0.062, 0.0);
+      finger.rotation.z = (f - 1) * -0.25 * side * -1;
+    }
     arms[side < 0 ? 'L' : 'R'] = { shoulder, elbow };
   }
 
   // ----- neck + head -----
-  mesh(taper(0.034, 0.04, 0.08, 16), skin, bob, 0, 1.02, 0);
+  mesh(taper(male ? 0.034 : 0.028, male ? 0.04 : 0.034, 0.08, 16), skin, bob, 0, 1.065, 0);
   const head = new THREE.Group();
   head.position.set(0, HEAD_Y, 0);
   bob.add(head);
-  const shapeScale = { round: [1, 0.96, 0.96], oval: [0.92, 1.03, 0.94], square: [1, 1, 1] }[cfg.faceShape];
+  const shapeScale = { round: [0.88, 0.9, 0.88], oval: [0.82, 0.95, 0.85], square: [0.86, 0.88, 0.86] }[cfg.faceShape];
   const headInner = new THREE.Group();
   headInner.scale.set(...shapeScale);
   head.add(headInner);
   const square = cfg.faceShape === 'square';
-  if (square) mesh(rbox(0.57, 0.55, 0.54, 0.22), skin, headInner);
-  else mesh(sphere(R, 40, 28), skin, headInner);
+  if (square) mesh(rbox(0.6, 0.6, 0.6, 0.24), skin, headInner);
+  else mesh(headGeo(), skin, headInner);
 
   // ears
+  // big round ears that stick out, like the reference
   const earInner = M(shade(cfg.skin, 0.86), 0.65);
   for (const s of [-1, 1]) {
-    const ex = (square ? 0.285 : R * 0.95) * s;
-    const ear = mesh(sphere(0.078, 16, 12), skin, headInner, ex, -0.04, -0.01);
-    ear.scale.set(0.42, 1, 0.72);
-    const inner = mesh(sphere(0.05, 12, 10), earInner, headInner, ex + s * 0.022, -0.04, 0.0);
-    inner.scale.set(0.25, 0.8, 0.55);
+    const ex = (0.262 * shapeScale[0] / 0.88 + 0.04) * s;
+    const ear = mesh(sphere(0.085, 18, 14), skin, head, ex, -0.045, -0.01);
+    ear.scale.set(0.5, 1, 0.82);
+    ear.rotation.y = s * 0.35;
+    const inner = mesh(sphere(0.058, 14, 10), earInner, head, ex + s * 0.02, -0.045, 0.014);
+    inner.scale.set(0.3, 0.78, 0.6);
+    inner.rotation.y = s * 0.35;
   }
 
   // painted face
@@ -934,11 +973,11 @@ export function buildAvatar(rawCfg) {
   if (square) {
     const fw = (FACE_PHI * 2) * R * 0.95, fh = FACE_THETA_LEN * R * 0.95;
     const plane = new THREE.Mesh(geo('facePlane', () => new THREE.PlaneGeometry(fw, fh)), faceMat);
-    plane.position.set(0, (0.75 - FACE_THETA0) * R + 0.02, 0.281);
+    plane.position.set(0, (FACE_THETA0 - FACE_THETA_LEN / 2) * R, 0.302);
     headInner.add(plane);
   } else {
     const face = new THREE.Mesh(
-      geo('faceShell', () => new THREE.SphereGeometry(R * 1.004, 40, 28, Math.PI / 2 - FACE_PHI, FACE_PHI * 2, Math.PI / 2 - FACE_THETA0, FACE_THETA_LEN)),
+      geo('faceShell', () => chibiDeform(new THREE.SphereGeometry(R * 1.004, 44, 32, Math.PI / 2 - FACE_PHI, FACE_PHI * 2, Math.PI / 2 - FACE_THETA0, FACE_THETA_LEN))),
       faceMat,
     );
     headInner.add(face);
@@ -1168,7 +1207,7 @@ export function buildAvatar(rawCfg) {
 
   // ----- accessories -----
   const eyePos = (side) => {
-    const az = side * 0.41, el = -0.12;
+    const az = side * 0.42, el = -0.44;
     return new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
   };
   if (cfg.glasses) {
@@ -1178,15 +1217,15 @@ export function buildAvatar(rawCfg) {
       const n = eyePos(s);
       const p = n.clone().multiplyScalar(square ? 0.3 : R + 0.025);
       if (square) p.z = 0.3;
-      const ring = mesh(torus(0.088, 0.009), frame, headInner, p.x, p.y, p.z);
+      const ring = mesh(torus(0.078, 0.009), frame, headInner, p.x, p.y, p.z);
       ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), square ? new THREE.Vector3(0, 0, 1) : n);
-      const l = mesh(geo('lens', () => new THREE.CircleGeometry(0.086, 24)), lens, headInner, p.x, p.y, p.z - 0.002);
+      const l = mesh(geo('lens', () => new THREE.CircleGeometry(0.076, 24)), lens, headInner, p.x, p.y, p.z - 0.002);
       l.quaternion.copy(ring.quaternion);
       l.castShadow = false;
       const arm = mesh(rbox(0.008, 0.008, 0.26, 0.003), frame, headInner, s * R * 0.9, p.y + 0.01, -0.02);
       arm.rotation.y = 0.05 * s;
     }
-    const bp = new THREE.Vector3(0, -0.08, 1).normalize().multiplyScalar(R + 0.03);
+    const bp = new THREE.Vector3(0, -0.42, 1).normalize().multiplyScalar(R + 0.03);
     mesh(cyl(0.006, 0.006, 0.07, 6), frame, headInner, 0, bp.y + 0.03, square ? 0.31 : bp.z).rotation.z = Math.PI / 2;
   }
   // ----- hats -----
@@ -1244,14 +1283,14 @@ export function buildAvatar(rawCfg) {
     else bow(hairGroup, hr * 0.62, hr * 0.68, -hr * 0.28, 1.5, acc, 1.1);
   }
   if (cfg.crossbody) {
-    const strapF = mesh(rbox(0.016, 0.44, 0.008, 0.003), dark, torso, 0, 0.2, front + 0.012);
+    const strapF = mesh(rbox(0.016, 0.44, 0.008, 0.003), dark, torso, 0, 0.26, front + 0.012);
     strapF.rotation.z = 0.72;
-    const strapB = mesh(rbox(0.016, 0.44, 0.008, 0.003), dark, torso, 0, 0.2, -front - 0.012);
+    const strapB = mesh(rbox(0.016, 0.44, 0.008, 0.003), dark, torso, 0, 0.26, -front - 0.012);
     strapB.rotation.z = -0.72;
     const bx = -(tW * oversize) / 2 - 0.02;
-    mesh(rbox(0.04, 0.09, 0.1, 0.02), acc, torso, bx, 0.03, 0.02);
-    mesh(rbox(0.044, 0.04, 0.104, 0.015), M(shade(cfg.accColor, 0.8), 0.6), torso, bx, 0.06, 0.02);
-    mesh(sphere(0.01, 8, 6), M('#f0c75e', 0.3, { metalness: 0.4 }), torso, bx - 0.022, 0.045, 0.02);
+    mesh(rbox(0.04, 0.09, 0.1, 0.02), acc, torso, bx, 0.09, 0.02);
+    mesh(rbox(0.044, 0.04, 0.104, 0.015), M(shade(cfg.accColor, 0.8), 0.6), torso, bx, 0.12, 0.02);
+    mesh(sphere(0.01, 8, 6), M('#f0c75e', 0.3, { metalness: 0.4 }), torso, bx - 0.022, 0.105, 0.02);
   }
   if (cfg.headphones) {
     const hpR = hr * (hatCovers ? 1.22 : 1.14) + (style === 'curly' ? 0.05 : 0);
@@ -1264,24 +1303,24 @@ export function buildAvatar(rawCfg) {
     }
   }
   if (cfg.backpack) {
-    mesh(rbox(0.25 * w, 0.3, 0.13, 0.05), acc, torso, 0, 0.19, -tD / 2 - 0.06);
-    mesh(rbox(0.18 * w, 0.11, 0.04, 0.02), M(shade(cfg.accColor, 0.8)), torso, 0, 0.11, -tD / 2 - 0.135);
+    mesh(rbox(0.25 * w, 0.3, 0.13, 0.05), acc, torso, 0, 0.25, -tD / 2 - 0.07);
+    mesh(rbox(0.18 * w, 0.11, 0.04, 0.02), M(shade(cfg.accColor, 0.8)), torso, 0, 0.17, -tD / 2 - 0.145);
     for (const s of [-1, 1]) {
-      const strap = mesh(rbox(0.035, 0.34, 0.015, 0.008), dark, torso, 0.08 * w * s, 0.2, tD / 2 + 0.004);
+      const strap = mesh(rbox(0.03, 0.34, 0.015, 0.008), dark, torso, 0.075 * w * s, 0.26, front + 0.004);
       strap.rotation.z = 0.05 * s;
     }
   }
   if (cfg.lanyard) {
     const ly = M(cfg.accColor, 0.6);
     for (const s of [-1, 1]) {
-      const strip = mesh(rbox(0.014, 0.17, 0.005, 0.002), ly, torso, 0.04 * s, 0.29, front + 0.005);
+      const strip = mesh(rbox(0.014, 0.17, 0.005, 0.002), ly, torso, 0.04 * s, 0.33, front + 0.005);
       strip.rotation.z = -0.35 * s;
     }
-    const neckRing = mesh(torus(0.06, 0.007), ly, bob, 0, 0.995, 0);
+    const neckRing = mesh(torus(0.05, 0.007), ly, bob, 0, 1.03, 0);
     neckRing.rotation.x = Math.PI / 2 - 0.3;
-    mesh(rbox(0.065, 0.085, 0.01, 0.008), white, torso, 0, 0.18, front + 0.01);
-    mesh(rbox(0.065, 0.022, 0.012, 0.006), ly, torso, 0, 0.212, front + 0.011);
-    mesh(rbox(0.024, 0.026, 0.012, 0.004), M('#c9cbd6', 0.6), torso, -0.014, 0.17, front + 0.012);
+    mesh(rbox(0.065, 0.085, 0.01, 0.008), white, torso, 0, 0.23, front + 0.01);
+    mesh(rbox(0.065, 0.022, 0.012, 0.006), ly, torso, 0, 0.262, front + 0.011);
+    mesh(rbox(0.024, 0.026, 0.012, 0.004), M('#c9cbd6', 0.6), torso, -0.014, 0.22, front + 0.012);
   }
 
   const tallHair = ['bun', 'spacebuns', 'spiky', 'curly', 'manbun'].includes(style) ? 0.08 : 0.03;
@@ -1336,7 +1375,7 @@ export function animateAvatar(av, dt, state) {
     const sitArm = state.typing ? -0.55 + typeJit : -0.2;
     arm.shoulder.rotation.x = lerp(walkArm, sitArm, sit);
     arm.elbow.rotation.x = lerp(-0.15 - walk * 0.3, state.typing ? -1.1 : -0.9, sit);
-    arm.shoulder.rotation.z = (0.12 + breathe * 2) * -s * (1 - sit) + 0.06 * -s * sit;
+    arm.shoulder.rotation.z = (0.56 + breathe * 2) * -s * (1 - sit) + 0.1 * -s * sit;
   }
   av.bob.position.y = Math.abs(Math.sin(a.phase)) * 0.04 * walk * (1 - sit) + breathe * (1 - walk);
   av.torso.rotation.x = 0.05 * walk * (1 - sit) - 0.03 * sit;
@@ -1358,13 +1397,13 @@ export function faceThumb(rawCfg, part) {
   const cfg = normalizeAvatar(rawCfg);
   const tex = drawFace(cfg);
   const src = tex.image;
-  const eyeY = (FACE_THETA0 + 0.12) * PX;
+  const eyeY = (FACE_THETA0 + 0.44) * PX;
   const c = tileCanvas();
   const g = c.getContext('2d');
   g.fillStyle = cfg.skin;
   g.fillRect(0, 0, 160, 160);
-  if (part === 'eyes') g.drawImage(src, FACE_W / 2 - 150, eyeY - 135, 300, 300, 0, 0, 160, 160);
-  else g.drawImage(src, FACE_W / 2 - 60, eyeY + 0.36 * PX - 60, 120, 120, 0, 0, 160, 160);
+  if (part === 'eyes') g.drawImage(src, FACE_W / 2 - 170, eyeY - 160, 340, 340, 0, 0, 160, 160);
+  else g.drawImage(src, FACE_W / 2 - 60, eyeY + 0.4 * PX - 60, 120, 120, 0, 0, 160, 160);
   tex.dispose();
   return c.toDataURL('image/png');
 }

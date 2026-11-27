@@ -10,16 +10,16 @@ const pretty = (s) => LABELS[s] || s.charAt(0).toUpperCase() + s.slice(1);
 // ---------- option tiles: each choice shown as a little picture ----------
 // Which part of the avatar a field's thumbnail should frame.
 const TILE_VIEW = {
-  bodyType: 'full', faceShape: 'head', hair: 'hair', top: 'torso', bottom: 'lower', shoeStyle: 'feet', socks: 'legs', hat: 'hat',
+  gender: 'full', bodyType: 'full', faceShape: 'head', hair: 'hair', top: 'torso', bottom: 'lower', shoeStyle: 'feet', socks: 'legs', hat: 'hat',
   eyes: 'eyes2d', mouth: 'mouth2d', topPattern: 'pattern', bottomPattern: 'pattern', print: 'print',
 };
 const VIEWS = {
-  full: { target: [0, 0.8, 0], pos: [0, 0.9, 3.9], rot: 0.35 },
-  head: { target: [0, 1.3, 0], pos: [0, 1.34, 2.1], rot: 0.3 },
-  hair: { target: [0, 1.3, 0], pos: [0, 1.36, 2.25], rot: 0.6 },
-  hat: { target: [0, 1.42, 0], pos: [0, 1.5, 2.05], rot: 0.35 },
-  torso: { target: [0, 0.83, 0], pos: [0, 0.8, 1.35], rot: 0.3 },
-  lower: { target: [0, 0.4, 0], pos: [0, 0.42, 1.75], rot: 0.3 },
+  full: { target: [0, 0.82, 0], pos: [0, 0.9, 3.0], rot: 0.35 },
+  head: { target: [0, 1.33, 0], pos: [0, 1.37, 1.95], rot: 0.3 },
+  hair: { target: [0, 1.33, 0], pos: [0, 1.39, 2.1], rot: 0.6 },
+  hat: { target: [0, 1.43, 0], pos: [0, 1.5, 2.05], rot: 0.35 },
+  torso: { target: [0, 0.86, 0], pos: [0, 0.84, 1.4], rot: 0.3 },
+  lower: { target: [0, 0.4, 0], pos: [0, 0.42, 1.8], rot: 0.3 },
   legs: { target: [0, 0.16, 0], pos: [0, 0.22, 0.95], rot: 0.35 },
   feet: { target: [0, 0.05, 0.02], pos: [0, 0.2, 0.62], rot: 0.5 },
 };
