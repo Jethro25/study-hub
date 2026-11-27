@@ -1,0 +1,93 @@
+I'm building **Study Hub**, a browser-based 3D virtual office for my class: people walk around as cute chibi anime avatars, sit at desks, present on a big screen, chat and use office items. It runs in Three.js, and **every avatar and every piece of furniture is built in code from simple 3D shapes** (spheres, tapered capsules, rounded boxes, cylinders, lathe/turned profiles). There are no imported 3D model files.
+
+I've attached a zip with **everything the app has right now**: renders of the avatars, all eye and mouth styles, expressions, hairstyles, clothes, items, actions and the current office, plus measured spec sheets. Please use it as the starting point. Keep what works and redesign what looks weak.
+
+**What looks weak right now:**
+- The hair reads like a helmet with leaf-shaped bangs. It needs much more variety and more natural anime clumps.
+- The bodies are stiff and doll-like.
+- The face kit is small.
+- The office is plain.
+
+Please design the following as clear, labelled design sheets I can rebuild in code.
+
+## 1. Chibi base models: female and male
+- Full turnaround for each, in a neutral **A-pose** on a plain light background: **front, 3/4, side, back**. Show a grey "base mannequin" version (no hair, simple underwear-like shorts/top) **and** a dressed example.
+- **Proportions:** about 2.5 to 3 heads tall, with the head roughly 1/3 of the total height. The cute anime chibi look is a big head, small rounded body, short limbs and small hands and feet.
+  - Use `spec/proportions.png` as the baseline. The units are metres in the 3D scene: ground 0, knee 0.30, hip joint 0.60, shoulder joint 0.99, head centre 1.35, head radius 0.30, top of head ~1.62.
+  - Keep the same scale, or propose better numbers and write them on the sheet.
+- **Mark every joint** (neck, shoulder, elbow, wrist, hip, knee, ankle) with its height and position, because the app animates them.
+- Female and male should differ clearly but stay cute:
+  - Female: narrower shoulders, small waist, wider hips.
+  - Male: broader, straighter torso, slightly thicker limbs.
+- Show **body types** slim / regular / broad, and **8 head shapes**: round, oval, soft square, heart, chubby mochi, long, diamond, bean.
+- Describe each body part as a simple shape with dimensions, for example "upper arm = tapered capsule, top radius 0.036, bottom 0.030, length 0.155". I need to be able to rebuild it from primitives.
+- Hands: simple mitten-like hands with a thumb and 3 to 4 short fingers. Ears: small and rounded.
+
+## 2. Hairstyles: a lot of variety
+- At least **24 female and 24 male** hairstyles, plus a few unisex ones. Give each a short name and an id like `hair_messy_short`.
+  - Female ideas: hime cut, twin tails, low twin tails, high ponytail, side ponytail, space buns, braided crown, side braid, double braids, messy bun, wolf cut, hush cut, long wavy, curly afro puffs, bob with bangs, pixie, drills/ringlets, half-up half-down, ahoge long, shaggy layers.
+  - Male ideas: messy short, side part, two-block, undercut, curtain bangs, spiky shonen, slicked back, man bun, mullet, wolf cut, buzz cut, curly top, long tied back, emo fringe, comma hair, mohawk, dreads tied up, bowl cut.
+- For each style: **front, 3/4, side and back**. No bald patches: the hairline sits high on the forehead, covers the ears unless the style shows them, and reaches the nape.
+- Build every style from these pieces so I can code it:
+  1. a scalp shell (a cap that follows the head),
+  2. **locks**: tapered teardrop clumps rooted on the scalp, with a root point, direction, length and width,
+  3. extras: buns (spheres), braids (chains of beads), ties, clips, ahoge strands.
+- Mark which parts **swing** when walking (ponytails, braids, long locks) and where each one pivots.
+- Show a **short "under a hat" variant** for tall styles: cap, beanie, bucket hat.
+- Colours: a flat base colour plus one shadow tone and an optional highlight band. Suggest 16 natural and fun hair colours with hex codes.
+
+## 3. Face kit: eyes, mouths, brows, expressions
+- The face is a **2D texture painted on the front of the head**. See `spec/face-texture-layout.png` (512 × 471 px). Right eye centre ≈ (143, 280), left ≈ (369, 280), each eye about 114 × 136 px, brows ≈ y 178, nose ≈ (256, 339), mouth ≈ (256, 388).
+- Please deliver eyes and mouths that fit that layout exactly, as **transparent PNG (512 × 471 sheets) and SVG**:
+  - **≥ 20 eye styles**: round sparkly, tsurime (sharp), tareme (droopy), sleepy, star, heart, closed happy arcs, ><, dots, swirl, wink, determined, teary, cat eyes, glasses-friendly, etc. Draw the iris in **greyscale on its own layer** so I can tint it with any eye colour.
+  - **≥ 20 mouths**: smile, grin, open laugh, cat :3, pout, fang, tongue, wavy, gasp, triangle, sulk, smirk, whistle, teeth grin, plus **3 talking frames** (closed / half / open).
+  - **Brows** for each mood: neutral, happy, sad, angry, surprised, one raised.
+  - **Extras**: blush (2 strengths), tears, sweat drop, anger mark, sparkles, shadow lines (gloom), sleepy bubble.
+- An **expression sheet** combining them: neutral, happy, laughing, excited, love, surprised, thinking, confused, shy, sad, crying, angry, sleepy, plus a blink frame.
+
+## 4. Clothes and accessories
+- Catalogue fitted to both bodies, front and back. Tops: t-shirt, hoodie, zip hoodie, sweater, cardigan, blazer, shirt + tie, polo, varsity jacket, track jacket, cami, off-shoulder, sailor uniform, office blouse, vest. Bottoms: pants, wide-leg jeans, cargo, joggers, shorts, pleated skirt, pencil skirt, ruffle skirt, long skirt, sundress, pinafore, overalls, suit trousers. Shoes: sneakers, high-tops, loafers, Mary Janes, boots, slippers.
+- Hats and accessories: cap, beanie, bucket, frog hat, cat ears, bunny ears, glasses, headphones, hair bow, backpack, crossbody bag, lanyard / ID badge, tie, scarf, watch.
+- **Role outfits:** a suggested look for each role (Manager, Team Lead, Employee, Intern, HR, Designer, Developer, Secretary, Student, Teacher, Guest).
+- Describe clothes as **shells that sit slightly outside the body**, with seams, hems and collars as simple rings or strips. Show how skirts and dresses drape when **sitting**.
+- Include 8 fabric patterns (stripes, plaid, dots, hearts, stars, flowers, gingham, denim) as small tileable swatches.
+
+## 5. Office items avatars can hold and use
+- Design each item at real scale next to an avatar's hand: papers, document folder, book, notebook, clipboard, pen, laptop, tablet, phone, coffee mug, water bottle, sticky notes, calculator, stapler, envelope, ID card, file box, plus 8 more ideas: headset, whiteboard marker, binder, sketchbook, snack, umbrella, keys, plant pot.
+- For each one, show **how it's held** (one hand or two hands) and give its size in metres.
+- Show **action poses** with props: write notes, sign papers, read, type, phone call, coffee break, hand an item to someone, nap at desk, think (hand on chin), wave, clap, cheer, bow, raise hand, point, shrug, facepalm, stretch, listen. Show each one standing, and seated at a desk where it makes sense. Mark the rough joint angles.
+
+## 6. A complete office (top floor of a high-rise at night)
+- A **top-down floor plan with dimensions**. The current footprint is 30 m × 22 m; you may propose larger.
+- Zones:
+  - reception and lobby with lift doors
+  - open workspace / study pods
+  - a **meeting room** for 12 to 16 people with a big presentation screen and a podium
+  - 2 small huddle rooms or phone booths
+  - **manager's office**
+  - lounge with sofas
+  - café / pantry with a coffee machine, fridge and water cooler
+  - quiet library corner with bookshelves
+  - printer / supply station
+  - whiteboard wall
+  - plants
+  - a balcony or terrace overlooking the city
+- Perspective sketches of each zone in the **night high-rise mood**: warm interior lights against a deep blue city skyline with lit windows, stars and a moon.
+- A **furniture catalogue** with dimensions, every piece described as simple shapes: desks, office chairs, meeting chairs, sofas, coffee tables, shelves, cabinets, lamps, screen, podium, printer, coffee machine, vending machine, whiteboard, rugs, planters.
+- **Interactive hotspots:** list everything an avatar can click and what happens. For example: coffee machine gives a mug, printer gives papers, bookshelf gives a book, whiteboard starts writing, water cooler gives a bottle, sofa lets you sit.
+
+## Style guide
+- Original designs only. Cute anime chibi, soft and rounded, toon / soft shading, friendly and cozy. Don't copy existing characters or games.
+- One shared **colour palette with hex codes** for skin tones (10), hair (16), clothes and the office.
+- Everything should be readable at small size, because avatars are seen from a third-person camera a few metres away.
+
+## Output format
+- Labelled PNG sheets on a light background, with a scale grid in metres.
+- Every option has a name and a short id. Keep the existing ids where a style already exists; see `spec/avatar-options.json`.
+- A short written spec under each sheet with the shapes and numbers I need to rebuild it in Three.js.
+
+**What's in the attached zip:**
+- `current/`: renders of what exists now
+- `contact-sheets/`: overview sheets
+- `spec/`: proportions, face texture layout, option list
+- `source-code/`: the current avatar, actions and office code, for reference

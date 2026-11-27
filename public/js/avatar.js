@@ -1198,10 +1198,17 @@ export function buildAvatar(rawCfg) {
   const down = new THREE.Vector3(0, -1, 0);
   const basis = new THREE.Matrix4();
   const hairDyn = []; // swinging hair pivots
+  const tmpOut = new THREE.Vector3();
   /**
    * A tapered lock of hair rooted on the scalp.
    * az: 0 = front, + = avatar's left. el: elevation (radians, 0 = level with the ears).
    * opts.sway rotates it sideways, opts.straight pulls it toward hanging straight down, opts.out flares it outward.
+   */
+  /**
+   * A hair lock (design sheet 02): a tapered, flattened tube grown from a root on the scalp in 5-18 steps.
+   * It bends with gravity, stays outside the head, and can twist, curl out at the tip or wave.
+   * az: 0 = front, + = avatar's left. el: elevation (radians, 0 = level with the ears).
+   * opts: sway (sideways), straight (start hanging down), out (flare), lift, g (gravity), curl, wave, twist, blunt, swing, spike.
    */
   function lock(az, el, len, width, depth, opts = {}) {
     const n = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
@@ -1211,28 +1218,86 @@ export function buildAvatar(rawCfg) {
     if (opts.sway) t.applyAxisAngle(n, opts.sway);
     if (opts.straight) t.lerp(down, opts.straight).normalize();
     if (opts.out) t.addScaledVector(n, opts.out).normalize();
-    const center = n.clone().multiplyScalar(hr + (opts.lift || 0)).addScaledVector(t, len * 0.46).addScaledVector(n, depth * 0.3);
+    const rootP = n.clone().multiplyScalar(hr * 0.99 + (opts.lift || 0));
     let parent = hairGroup;
     if (opts.swing) {
       // hang the lock from a pivot at its root so it can swing
-      const rootP = n.clone().multiplyScalar(hr + (opts.lift || 0));
       const pivot = new THREE.Group();
       pivot.position.copy(rootP);
       hairGroup.add(pivot);
-      center.sub(rootP);
       parent = pivot;
       hairDyn.push({ pivot, w: opts.swing, x: 0, vx: 0, z: 0, vz: 0 });
     }
-    const m = mesh(opts.spike ? cone(1, 2) : lockGeo(), opts.mat || hairM, parent, center.x, center.y, center.z);
-    // orient: local +Y = root direction (-t), local Z = scalp normal
-    const yAx = t.clone().negate();
-    const zAx = n.clone().addScaledVector(yAx, -n.dot(yAx)).normalize();
-    const xAx = new THREE.Vector3().crossVectors(yAx, zAx);
-    basis.makeBasis(xAx, yAx, zAx);
-    m.quaternion.setFromRotationMatrix(basis);
-    if (opts.spike) m.rotateX(Math.PI); // cone tip points away from the root
-    m.scale.set(width, len / 2, depth);
-    return m;
+    if (opts.spike) {
+      const center = rootP.clone().addScaledVector(t, len * 0.46).addScaledVector(n, depth * 0.3);
+      if (opts.swing) center.sub(rootP);
+      const m = mesh(cone(1, 2), opts.mat || hairM, parent, center.x, center.y, center.z);
+      const yAx = t.clone().negate();
+      const zAx = n.clone().addScaledVector(yAx, -n.dot(yAx)).normalize();
+      basis.makeBasis(new THREE.Vector3().crossVectors(yAx, zAx), yAx, zAx);
+      m.quaternion.setFromRotationMatrix(basis);
+      m.rotateX(Math.PI);
+      m.scale.set(width, len / 2, depth);
+      return m;
+    }
+    // grow the path
+    const steps = Math.max(5, Math.min(18, Math.round(len / 0.022)));
+    const ds = len / steps;
+    const g = opts.g ?? 0.3;
+    const pts = [];
+    const pos = rootP.clone(), dir = t.clone();
+    const sideAx = new THREE.Vector3().crossVectors(n, t).normalize();
+    const minR = hr * 1.05 + (opts.lift || 0) * 0.5;
+    for (let i = 0; i <= steps; i++) {
+      pts.push(pos.clone());
+      const sN = i / steps;
+      dir.addScaledVector(down, g * ds * 5).normalize();
+      if (opts.curl && sN > 0.6) dir.addScaledVector(tmpOut.copy(pos).setY(0).normalize(), opts.curl * ds * 7).normalize();
+      pos.addScaledVector(dir, ds);
+      if (opts.wave) pos.addScaledVector(sideAx, Math.sin(sN * Math.PI * 3) * opts.wave * ds);
+      if (pos.y > -hr * 0.95 && pos.length() < minR) pos.setLength(minR);
+    }
+    // rings along the path: wide (width) across, flattened (0.42) toward the scalp
+    const K = 8;
+    const verts = [];
+    const T = new THREE.Vector3(), N = new THREE.Vector3(), B = new THREE.Vector3();
+    for (let i = 0; i <= steps; i++) {
+      const sN = i / steps;
+      T.subVectors(pts[Math.min(steps, i + 1)], pts[Math.max(0, i - 1)]).normalize();
+      N.copy(pts[i]).normalize().addScaledVector(T, -N.copy(pts[i]).normalize().dot(T));
+      if (N.lengthSq() < 1e-6) N.copy(n);
+      N.normalize();
+      B.crossVectors(T, N).normalize();
+      let w = sN < 0.2 ? 0.72 + 1.4 * sN : opts.blunt ? (sN < 0.85 ? 1 : Math.max(0.04, (1 - sN) / 0.15)) : Math.max(0.03, (1 - sN) / 0.8);
+      const hw = width * w, ht = Math.max(0.006, width * 0.42 * w);
+      const tw = (opts.twist || 0) * sN;
+      for (let k = 0; k < K; k++) {
+        const ang = (k / K) * Math.PI * 2 + tw;
+        const c = Math.cos(ang), sn = Math.sin(ang);
+        verts.push(pts[i].x + B.x * c * hw + N.x * sn * ht, pts[i].y + B.y * c * hw + N.y * sn * ht, pts[i].z + B.z * c * hw + N.z * sn * ht);
+      }
+    }
+    const tip = pts[steps].clone().addScaledVector(T, ds * 0.4);
+    verts.push(tip.x, tip.y, tip.z, pts[0].x, pts[0].y, pts[0].z);
+    const tipI = (steps + 1) * K, rootI = tipI + 1;
+    const idx = [];
+    for (let i = 0; i < steps; i++) {
+      for (let k = 0; k < K; k++) {
+        const a0 = i * K + k, a1 = i * K + ((k + 1) % K), b0 = a0 + K, b1 = a1 + K;
+        idx.push(a0, b0, a1, a1, b0, b1);
+      }
+    }
+    for (let k = 0; k < K; k++) {
+      idx.push(steps * K + k, tipI, steps * K + ((k + 1) % K));
+      idx.push(rootI, k, (k + 1) % K);
+    }
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    geom.setIndex(idx);
+    if (opts.swing) geom.translate(-rootP.x, -rootP.y, -rootP.z);
+    geom.computeVertexNormals();
+    disposables.push(geom);
+    return mesh(geom, opts.mat || hairM, parent);
   }
   /** hair base: high on the forehead, down over the ears and to the nape */
   const capHair = (front = 0.3, k = 1.07, side = -0.6, back = -1.05) => mesh(hairShellGeo(+(hr * k).toFixed(4), front, side, back), hairM, hairGroup);
@@ -1334,20 +1399,20 @@ export function buildAvatar(rawCfg) {
       capHair(0.3);
       bangs('blunt', 10, 0.2);
       sideLocks(0.3, 0.28, { out: 0.15, swing: 0.25 });
-      backLocks(0.32, 11, 0.28, { out: 0.12, swing: 0.3 });
+      backLocks(0.32, 11, 0.28, { out: 0.12, swing: 0.3, curl: 0.5 });
       ahoge();
       break;
     case 'long':
       capHair(0.3);
       bangs('blunt', 9, 0.21);
       sideLocks(0.55, 0.2, { swing: 0.45 });
-      backLocks(0.62, 11, 0.25, { straight: 0.75, swing: 0.6 });
+      backLocks(0.62, 11, 0.25, { straight: 0.75, swing: 0.6, blunt: true, g: 0.5 });
       break;
     case 'wavy': {
       capHair(0.3);
       bangs('messy', 9, 0.2);
       sideLocks(0.48, 0.2, { out: 0.12, swing: 0.45 });
-      backLocks(0.52, 11, 0.25, { straight: 0.6, out: 0.08, swing: 0.6 });
+      backLocks(0.52, 11, 0.25, { straight: 0.6, out: 0.08, swing: 0.6, wave: 0.5, curl: 0.3 });
       ahoge();
       break;
     }
@@ -1370,8 +1435,9 @@ export function buildAvatar(rawCfg) {
       bangs('messy', 8, 0.19);
       sideLocks(0.24, 0.3);
       mesh(torus(0.045, 0.016), acc, hairGroup, 0, hr * 0.55, -hr * 0.85).rotation.x = -0.5;
-      const tail = lock(Math.PI, 0.55, 0.48, 0.095, 0.09, { straight: 0.75, lift: 0.04, swing: 1 });
-      tail.position.z -= 0.06;
+      lock(Math.PI, 0.55, 0.48, 0.1, 0.09, { straight: 0.6, lift: 0.04, swing: 1, curl: 0.25, g: 0.25 });
+      lock(Math.PI + 0.25, 0.58, 0.42, 0.07, 0.07, { straight: 0.6, lift: 0.05, swing: 1, g: 0.3, twist: 0.6 });
+      lock(Math.PI - 0.25, 0.58, 0.42, 0.07, 0.07, { straight: 0.6, lift: 0.05, swing: 1, g: 0.3, twist: -0.6 });
       break;
     }
     case 'sidetail': {
