@@ -1,5 +1,7 @@
 # Study Hub — a 3D virtual office in your browser
 
+**Live site:** https://study-hub-3d.onrender.com (free tier: the first visit after a quiet period takes ~30–60 s to wake up)
+
 Walk around a cozy 3D office with your friends, see each other's webcams floating above your avatars, study together with a shared Pomodoro timer, and present on a big screen.
 
 - **Frontend:** Three.js (plain ES modules, no build step)
